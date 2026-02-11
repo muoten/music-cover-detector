@@ -1,81 +1,69 @@
-# yt-SongSpace
+# Music Cover Detector
 
-Interactive 3D visualization and clustering of song embeddings to explore musical style similarities.
+A cover song detection engine that identifies similar songs by comparing audio embeddings. Paste a YouTube link or search by title/artist, and it finds acoustically similar tracks across a database of ~40,000 songs.
 
-A spin-off of [yt-CoverHunter](https://github.com/muoten/yt-CoverHunter).
+Live at [coverdetector.com](https://coverdetector.com)
 
-[![Song Embedding Space](docs/screenshot.png)](https://muoten.github.io/yt-SongSpace/)
+[![Music Cover Detector](docs/screenshot.png)](https://coverdetector.com)
+
+## How it works
+
+1. Downloads audio from YouTube via yt-dlp
+2. Finds the matching track on iTunes (artist-verified)
+3. Computes a 128-dimensional audio embedding using CoverHunter
+4. Compares against the database using cosine similarity
+5. Returns the most similar songs with similarity scores
 
 ## Features
 
-- **Cluster Analysis** — Groups songs into clusters based on embedding similarity, revealing musical style patterns
-- **3D Visualization** — Interactive UMAP projection of 128-dimensional song embeddings
-- **Style Labels** — Automatically identifies musical styles (Jazz, Blues, Country, Pop, etc.) with representative artists
-- **Easy Exploration** — Dropdown menu and legend controls to isolate and explore specific clusters
+- **Cover song search** — Find covers and similar versions of any song via YouTube URL
+- **Title/artist search** — Search the database by song title or artist name
+- **Two models** — CoverHunter (128-dim, default) and VINet (512-dim)
+- **3D embedding space** — Interactive UMAP visualization of the song database
+- **Automated crawling** — Continuous indexing of new songs with dedup and verification
+- **Precision@1 tracking** — Live accuracy metric against Discogs ground truth
 
-## Installation
+## Architecture
+
+- **Backend**: Flask API serving embeddings and search (`discogs-coverhunter-itunes/api.py`)
+- **Frontend**: Single-page Material Design app (`docs/index.html`)
+- **Data**: Discogs-VI-YT dataset (~98K cliques), ~40K indexed with embeddings
+- **Deployment**: Docker on Hetzner via Coolify, persistent volume for embeddings
+
+## Local development
 
 ```bash
 pip install -r requirements.txt
+python discogs-coverhunter-itunes/api.py
 ```
 
-## Usage
+The API starts at `http://localhost:8080`. Requires `vectors.csv` (embeddings database).
 
-### 1. Cluster Analysis
+## Crawling
 
-Analyze song embeddings and identify patterns:
+Index new songs from the Discogs-VI-YT dataset:
 
 ```bash
-python cluster_analysis.py
+python crawl_songs.py --api http://localhost:8080 --delay 2
 ```
 
-Outputs:
-- Cluster statistics and characteristics
-- `clustered_songs.csv` — Songs with cluster assignments
+Three phases:
+1. **Phase 0** — Re-verify songs missing track_id mappings
+2. **Phase 1** — Re-crawl duplicate track_ids with artist verification
+3. **Phase 2** — Index new unprocessed songs
 
-### 2. Visualization
+## Data
 
-Generate interactive 3D visualization:
+- `vectors.csv` — CoverHunter embeddings (youtube_id + 128-dim vector)
+- `vectors_vinet.csv` — VINet embeddings (youtube_id + 512-dim vector)
+- `videos_to_test.csv` — YouTube videos from Discogs-VI-YT dataset
+- `docs/*.json` — Precomputed visualization data for GitHub Pages
 
-```bash
-python visualize_clusters_final.py
-```
+## Credits
 
-Outputs:
-- `clusters_3d_final.html` — Open in browser to explore
-
-### Controls
-
-- **Dropdown menu** (top-left): Select a cluster to isolate
-- **Double-click legend**: Isolate a single cluster
-- **Single-click legend**: Toggle clusters on/off
-- **Drag**: Rotate the 3D view
-- **Scroll**: Zoom in/out
-
-## Data Format
-
-### Input Files
-
-- `vectors_without_metadata_v4.tsv` — Song embeddings (N × 128 dimensions, tab-separated)
-- `metadata_clean_v4.tsv` — Song metadata (youtube_id, title, channel, view_count, etc.)
-
-### Output Files
-
-- `clustered_songs.csv` — Songs with cluster assignments
-- `clusters_3d_final.html` — Interactive visualization
-
-## Musical Styles Identified
-
-The clustering reveals distinct musical regions:
-
-| Style | Representative Artists |
-|-------|----------------------|
-| Vintage Swing & Big Band | Duke Ellington, Nat King Cole |
-| Cool Jazz & Bebop | Stan Getz, Chet Baker |
-| Chicago & Delta Blues | Muddy Waters, Memphis Slim |
-| Classic Country | George Jones, Willie Nelson |
-| Modern Pop Hits | Taylor Swift, Britney Spears |
-| Electronic & Dance | Calvin Harris, EDM |
+- Dataset: [Discogs-VI](https://github.com/MTG/discogs-vi-dataset) (MTG, Universitat Pompeu Fabra)
+- CoverHunter model: [Liu et al.](https://arxiv.org/abs/2306.09025)
+- VINet model: [Discogs-VINet](https://github.com/raraz15/Discogs-VINet)
 
 ## License
 
