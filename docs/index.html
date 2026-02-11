@@ -1,0 +1,1959 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Music Cover Detector</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Roboto', sans-serif;
+            background: #f5f5f5;
+            color: #333;
+            min-height: 100vh;
+        }
+
+        header {
+            background: white;
+            padding: 15px;
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 2em;
+            font-weight: 700;
+            color: #e62117;
+            margin-bottom: 4px;
+        }
+
+        .subtitle {
+            font-size: 0.85em;
+            color: #666;
+        }
+
+        .subtitle span[title] {
+            border-bottom: 1px dotted #888;
+            cursor: help;
+            position: relative;
+        }
+
+        .subtitle span[title].show-tooltip::after {
+            content: attr(title);
+            position: fixed;
+            top: 50px;
+            left: 10px;
+            right: 10px;
+            background: rgba(0,0,0,0.9);
+            color: white;
+            padding: 10px 15px;
+            border-radius: 6px;
+            font-size: 0.9em;
+            text-align: center;
+            z-index: 100;
+        }
+
+        main {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 10px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            overflow: hidden;
+            max-width: 100%;
+        }
+
+        #plot-container {
+            width: 100%;
+            max-width: 100%;
+            height: 50vh;
+            min-height: 300px;
+            touch-action: none;
+            overflow: hidden;
+        }
+
+        .mode-tabs {
+            display: flex;
+            border-bottom: 1px solid #eee;
+        }
+
+        .mode-tab {
+            flex: 1;
+            padding: 12px;
+            text-align: center;
+            font-size: 0.85em;
+            font-weight: 500;
+            cursor: pointer;
+            background: #fafafa;
+            color: #666;
+            border: none;
+            border-bottom: 3px solid transparent;
+            transition: all 0.2s;
+        }
+
+        .mode-tab:hover {
+            background: #f0f0f0;
+        }
+
+        .mode-tab.active {
+            background: white;
+            color: #e62117;
+            border-bottom-color: #e62117;
+        }
+
+        .controls {
+            padding: 12px 15px;
+            background: #fafafa;
+            border-bottom: 1px solid #eee;
+        }
+
+        .dataset-search-row {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+            align-items: center;
+        }
+
+        .dataset-select {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 20px;
+            font-family: 'Roboto', sans-serif;
+            font-size: 0.85em;
+            background: white;
+            cursor: pointer;
+            outline: none;
+            min-width: 180px;
+        }
+
+        .dataset-select:focus {
+            border-color: #1976D2;
+        }
+
+        .search-container {
+            position: relative;
+            flex: 1;
+        }
+
+        .search-input {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 20px;
+            font-family: 'Roboto', sans-serif;
+            font-size: 0.85em;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .search-input:focus {
+            border-color: #1976D2;
+        }
+
+        .search-input::placeholder {
+            color: #999;
+        }
+
+        .autocomplete-list {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            max-height: 250px;
+            overflow-y: auto;
+            z-index: 1000;
+            display: none;
+        }
+
+        .autocomplete-list.visible {
+            display: block;
+        }
+
+        .autocomplete-item {
+            padding: 8px 12px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            border-bottom: 1px solid #f0f0f0;
+        }
+
+        .autocomplete-item:last-child {
+            border-bottom: none;
+        }
+
+        .autocomplete-item:hover {
+            background: #f5f5f5;
+        }
+
+        .autocomplete-item img {
+            width: 40px;
+            height: 23px;
+            object-fit: cover;
+            border-radius: 3px;
+        }
+
+        .autocomplete-item .item-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .autocomplete-item .item-title {
+            font-size: 0.8em;
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .autocomplete-item .item-artist {
+            font-size: 0.7em;
+            color: #666;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .genre-pills {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .genre-pill {
+            padding: 6px 12px;
+            border: 2px solid #ddd;
+            border-radius: 20px;
+            font-size: 0.8em;
+            font-weight: 500;
+            cursor: pointer;
+            background: white;
+            color: #555;
+            transition: all 0.15s;
+        }
+
+        .genre-pill.active {
+            background: var(--genre-color);
+            border-color: var(--genre-color);
+            color: white;
+        }
+
+        .genre-pill:hover:not(.active) {
+            border-color: #999;
+        }
+
+        .controls-row {
+            display: flex;
+            gap: 6px;
+            margin-top: 8px;
+        }
+
+        .cluster-select {
+            flex: 1;
+            padding: 6px 10px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-family: 'Roboto', sans-serif;
+            font-size: 0.75em;
+            background: white;
+            cursor: pointer;
+        }
+
+        .cluster-select optgroup {
+            font-weight: 600;
+        }
+
+        .ctrl-btn {
+            padding: 6px 8px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-family: 'Roboto', sans-serif;
+            font-size: 0.7em;
+            background: white;
+            color: #666;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .ctrl-btn:hover {
+            background: #f5f5f5;
+        }
+
+        .plot-wrapper {
+            position: relative;
+            overflow: hidden;
+            max-width: 100%;
+        }
+
+        .zoom-controls {
+            position: absolute;
+            bottom: 15px;
+            right: 15px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            z-index: 10;
+        }
+
+        .zoom-btn {
+            width: 40px;
+            height: 40px;
+            border: none;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.9);
+            box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+            font-size: 1.4em;
+            font-weight: bold;
+            cursor: pointer;
+            color: #333;
+        }
+
+        .zoom-btn:hover {
+            background: white;
+        }
+
+        .zoom-btn:active {
+            background: #eee;
+        }
+
+        .song-panel {
+            display: none;
+            padding: 12px 15px;
+            background: white;
+            border-top: 1px solid #eee;
+        }
+
+        .song-panel.visible {
+            display: flex;
+            gap: 15px;
+            align-items: flex-start;
+        }
+
+        .song-info {
+            display: flex;
+            gap: 12px;
+            align-items: center;
+            flex-shrink: 0;
+        }
+
+        .song-info .player-container {
+            width: 160px;
+            height: 90px;
+            flex-shrink: 0;
+            position: relative;
+            border-radius: 4px;
+            overflow: hidden;
+            cursor: pointer;
+        }
+
+        .song-info .thumbnail {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .song-info .play-btn {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 40px;
+            height: 40px;
+            background: rgba(0,0,0,0.7);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .song-info .play-btn::after {
+            content: '';
+            border-style: solid;
+            border-width: 8px 0 8px 14px;
+            border-color: transparent transparent transparent white;
+            margin-left: 3px;
+        }
+
+        .song-info .player-container:hover .play-btn {
+            background: rgba(255,0,0,0.9);
+        }
+
+        .song-info iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+
+        .song-info .details {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .song-info .title {
+            font-weight: 700;
+            font-size: 1.1em;
+            margin-bottom: 4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .song-info .artist {
+            color: #666;
+            margin-bottom: 4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .song-info .outlier-badge {
+            font-size: 0.85em;
+            color: #d97706;
+            font-weight: 500;
+        }
+
+        .song-info .outlier-badge:empty {
+            display: none;
+        }
+
+        .similar-songs {
+            flex: 1;
+            min-width: 0;
+            border-left: 1px solid #eee;
+            padding-left: 15px;
+        }
+
+        .similar-songs h4 {
+            font-size: 0.75em;
+            color: #666;
+            margin-bottom: 6px;
+            font-weight: 500;
+        }
+
+        .similar-list {
+            display: flex;
+            gap: 6px;
+            overflow-x: auto;
+            padding-bottom: 4px;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .similar-headers {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 4px;
+        }
+
+        .similar-headers span {
+            font-size: 0.7em;
+            color: #888;
+            font-weight: 500;
+        }
+
+        .similar-divider {
+            flex-shrink: 0;
+            width: 2px;
+            background: #ccc;
+            margin: 0 6px;
+            align-self: stretch;
+        }
+
+        .similar-item {
+            flex-shrink: 0;
+            width: 80px;
+            cursor: pointer;
+            text-align: center;
+        }
+
+        .similar-item img {
+            width: 80px;
+            height: 45px;
+            object-fit: cover;
+            border-radius: 4px;
+            border: 2px solid transparent;
+            transition: border-color 0.15s;
+        }
+
+        .similar-item:hover img {
+            border-color: #1976D2;
+        }
+
+        .similar-item .sim-title {
+            font-size: 0.6em;
+            color: #333;
+            margin-top: 2px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .verified-badge {
+            color: #16a34a;
+            font-weight: bold;
+        }
+
+        .similar-item .sim-artist {
+            font-size: 0.55em;
+            color: #888;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .mobile-note {
+            display: none;
+            padding: 10px 15px;
+            background: #fff3cd;
+            border-top: 1px solid #ffc107;
+            font-size: 0.8em;
+            color: #856404;
+        }
+
+        .legend-info {
+            padding: 10px 15px;
+            background: #fafafa;
+            border-top: 1px solid #eee;
+            font-size: 0.8em;
+            color: #666;
+        }
+
+        footer {
+            text-align: center;
+            padding: 15px;
+            color: #888;
+            font-size: 0.8em;
+        }
+
+        footer a {
+            color: #1976D2;
+            text-decoration: none;
+        }
+
+        .loading {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 70vh;
+            color: #666;
+        }
+
+        @media (max-width: 768px) {
+            header { padding: 8px; }
+            h1 { font-size: 1.4em; }
+            .subtitle { font-size: 0.7em; }
+            .mode-tab { font-size: 0.75em; padding: 10px 8px; }
+            main { padding: 5px; }
+            .controls { padding: 8px; }
+            #plot-container { height: 38vh; min-height: 200px; }
+            .legend-info { display: none; }
+            .mobile-note { display: block; }
+            footer { display: none; }
+            .dataset-search-row { flex-direction: row; gap: 4px; }
+            .dataset-select { min-width: auto; width: 125px; font-size: 0.7em; padding: 6px 4px; }
+            .search-container { margin-bottom: 0; flex: 1; }
+            .search-input { font-size: 0.8em; padding: 6px 10px; }
+            .genre-pill { font-size: 0.75em; padding: 5px 10px; }
+            .controls-row { margin-top: 6px; }
+            .cluster-select { font-size: 0.7em; }
+            .ctrl-btn { font-size: 0.65em; padding: 5px 6px; }
+            .zoom-controls { bottom: 10px; right: 10px; }
+            .zoom-btn { width: 44px; height: 44px; font-size: 1.5em; }
+            .song-panel.visible { flex-direction: column; gap: 8px; padding: 8px 10px; }
+            .similar-songs { border-left: none; border-top: 1px solid #eee; padding-left: 0; padding-top: 8px; }
+            .similar-songs h4 { font-size: 0.7em; margin-bottom: 4px; }
+            .similar-item { width: 60px; }
+            .similar-item img { width: 60px; height: 34px; }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Music Cover Detector</h1>
+        <p class="subtitle" id="subtitle">Find similar songs for any YouTube video</p>
+    </header>
+
+    <main>
+        <div class="card">
+            <div class="mode-tabs">
+                <button class="mode-tab active" data-mode="addsong" onclick="switchMode('addsong')">
+                    🔍 Find similar songs
+                </button>
+                <button class="mode-tab" data-mode="clusters" onclick="switchMode('clusters')">
+                    🎵 Explore Clusters
+                </button>
+            </div>
+            <div class="controls" style="display: none;">
+                <div class="dataset-search-row">
+                    <select class="dataset-select" id="dataset-select" onchange="switchDataset(this.value)">
+                        <option value="" disabled>Select model</option>
+                        <option value="vinet">VINet (512-dim)</option>
+                        <option value="coverhunter" selected>CoverHunter (128-dim)</option>
+                    </select>
+                    <div class="search-container">
+                        <input type="text" class="search-input" id="search-input" placeholder="🔍 Search by title or artist...">
+                        <div class="autocomplete-list" id="autocomplete-list"></div>
+                    </div>
+                </div>
+                <div class="genre-pills" id="genre-pills"></div>
+                <div class="controls-row">
+                    <select class="cluster-select" id="cluster-select"></select>
+                    <button class="ctrl-btn" onclick="selectAll()">All</button>
+                    <button class="ctrl-btn" onclick="selectNone()">None</button>
+                    <button class="ctrl-btn" onclick="resetView()">Reset</button>
+                </div>
+            </div>
+
+            <div class="plot-wrapper" style="display: none;">
+                <div id="plot-container">
+                    <div class="loading">Loading...</div>
+                </div>
+                <div class="zoom-controls">
+                    <button class="zoom-btn" onclick="zoomIn()">+</button>
+                    <button class="zoom-btn" onclick="zoomOut()">−</button>
+                </div>
+            </div>
+
+            <div id="addsong-container" style="display: block; padding: 20px;">
+                <div style="position: relative; margin-bottom: 15px;">
+                    <input type="text" id="youtube-url" placeholder="Paste YouTube URL or search by title/artist..." style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; box-sizing: border-box;" oninput="handleUrlInput()">
+                    <div class="autocomplete-list" id="addsong-autocomplete"></div>
+                </div>
+                <div id="url-preview" style="display: none; margin-bottom: 15px; align-items: center; gap: 10px;">
+                    <a id="preview-link" href="#" target="_blank">
+                        <img id="preview-thumbnail" src="" style="width: 60px; height: 45px; object-fit: cover; border-radius: 4px;">
+                    </a>
+                    <span id="preview-title" style="font-size: 0.9em; color: #666;">Loading title...</span>
+                </div>
+                <div id="search-history" style="margin-bottom: 15px; display: none;">
+                    <span style="font-size: 0.85em; color: #666;">Recent: </span>
+                    <span id="history-items"></span>
+                </div>
+                <div id="addsong-status" style="margin-bottom: 15px; color: #666;"></div>
+                <div id="addsong-results"></div>
+            </div>
+
+            <div class="song-panel" id="song-panel">
+                <div class="song-info">
+                    <div class="player-container" id="player-container">
+                        <img class="thumbnail" id="song-thumbnail" src="" alt="">
+                        <div class="play-btn"></div>
+                    </div>
+                    <div class="details">
+                        <div class="title" id="song-title"></div>
+                        <div class="artist" id="song-artist"></div>
+                        <div class="outlier-badge" id="outlier-badge"></div>
+                        <button id="find-similar-btn" onclick="findSimilarFromPanel()" style="margin-top: 8px; padding: 6px 12px; background: #1976D2; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 13px;">Find similar songs</button>
+                    </div>
+                </div>
+                <div class="similar-songs" id="similar-songs">
+                    <div class="similar-headers" id="similar-headers"></div>
+                    <div class="similar-list" id="similar-list"></div>
+                </div>
+            </div>
+
+            <div id="addsong-stats" style="margin: 15px 0; padding: 15px; background: #f5f5f5; border-radius: 8px; font-size: 0.85em; color: #666;">
+                Loading database stats...
+            </div>
+
+            <div class="mobile-note">
+                Use a desktop browser for better performance.
+            </div>
+
+            <div class="legend-info">
+                <strong>Tip:</strong> Hover to see song info • Click to open YouTube
+            </div>
+        </div>
+    </main>
+
+    <footer>
+        Data from <a href="https://www.discogs.com">Discogs</a> •
+        <a href="https://github.com/muoten/yt-CoverHunter">yt-CoverHunter</a> •
+        <a href="https://github.com/muoten/yt-SongSpace">GitHub</a>
+    </footer>
+
+    <script>
+        const clusterLabels = {
+            0: "Hip-Hop & Electronic Remix • 2Pac, Eminem",
+            1: "Latin Jazz & Tango • Oscar Peterson, Tito Puente",
+            2: "R&B & Blues Rock • Ike & Tina Turner, B.B. King",
+            3: "Eclectic Rock & Funk • Motörhead, Aretha Franklin",
+            4: "Classic Country & Folk • Elvis Presley, Charley Pride",
+            5: "Pop Ballads & Soft Rock • Elton John, Johnny Mathis",
+            6: "Tropical & Mambo • Celia Cruz, Pérez Prado",
+            7: "Classic Rock & Power Pop • Led Zeppelin, Rolling Stones",
+            8: "Modern Pop & Rock Hits • Taylor Swift, Kelly Clarkson",
+            9: "Traditional Jazz & Vocal • Billie Holiday, Louis Armstrong",
+            10: "Art Rock & New Wave • Astor Piazzolla, Sting",
+            11: "60s Pop & Country • Elvis Presley, The Beatles",
+            12: "Early Jazz & Dixieland • Sidney Bechet, Fats Waller",
+            13: "Vintage Swing & Big Band • Frank Sinatra, Bing Crosby",
+            14: "Cool Jazz & Bebop • Stan Getz, Charlie Parker",
+            15: "Bossa Nova & Jazz Vocals • Miles Davis, Bill Evans",
+            16: "Heavy Metal & Hard Rock • Metallica, Slayer",
+            17: "Early Rock & Roll & Soul • Elvis Presley, Otis Redding",
+            18: "Chicago & Delta Blues • Muddy Waters, Howlin' Wolf",
+            19: "Bluegrass & Americana • Stanley Brothers, Johnny Cash",
+            20: "Vintage Pop & Latin Crooners • Flor Silvestre, Pedro Infante",
+            21: "Jazz Fusion & Bolero • Herbie Hancock, Olga Guillot",
+            22: "Jump Blues & Swing • Louis Jordan, Big Joe Turner",
+            23: "80s Synth & Arena Rock • Depeche Mode, Judas Priest",
+            24: "Classic Pop Crooners • Frank Sinatra, Nat King Cole"
+        };
+
+        const metaClusterNames = {
+            1: "Jazz",
+            2: "Latin & International",
+            3: "Blues & Early Rock",
+            4: "Rock & Electronic",
+            5: "Country & Pop"
+        };
+
+        const clusterToMeta = {
+            0: 4, 1: 1, 2: 3, 3: 4, 4: 5, 5: 5, 6: 2, 7: 4, 8: 5, 9: 1,
+            10: 4, 11: 5, 12: 1, 13: 1, 14: 1, 15: 1, 16: 4, 17: 3, 18: 3,
+            19: 5, 20: 2, 21: 2, 22: 3, 23: 4, 24: 5
+        };
+
+        const metaClusterColors = {
+            1: "#1c56c8",  // Jazz - blue
+            2: "#c8721c",  // Latin & International - orange
+            3: "#c81c1c",  // Blues & Early Rock - red
+            4: "#811cc8",  // Rock & Electronic - purple
+            5: "#1cc856"   // Country & Pop - green
+        };
+
+        const clusterColors = {
+            0: "#650da5", 1: "#0d3fa5", 2: "#a50d0d", 3: "#7613bd",
+            4: "#0da53f", 5: "#13bd4c", 6: "#a5590d", 7: "#871bd4",
+            8: "#1bd459", 9: "#134cbd", 10: "#952fde", 11: "#2fde69",
+            12: "#1b59d4", 13: "#2f69de", 14: "#4e7ede", 15: "#6b92df",
+            16: "#a24ede", 17: "#cc1818", 18: "#de3a3a", 19: "#4ede7e",
+            20: "#df7f1f", 21: "#dfa56b", 22: "#df6b6b", 23: "#af6bdf",
+            24: "#6bdf92"
+        };
+
+        const genreIcons = {
+            1: "🎷",  // Jazz
+            2: "🌎",  // Latin & International
+            3: "🎸",  // Blues & Early Rock
+            4: "🎹",  // Rock & Electronic
+            5: "🤠"   // Country & Pop
+        };
+
+        const isMobile = window.innerWidth <= 768;
+        let plotTraces = [];
+        let activeClusters = new Set([1, 2, 4, 5, 8, 9, 11, 12, 13, 14, 15, 17, 18, 19, 22, 24]);
+        let allSongs = [];
+        let coverLinks = {};
+        let verifiedCovers = {};
+        let currentMode = 'addsong';
+        let currentDataset = 'coverhunter';  // 'vinet' or 'coverhunter'
+        let selectedSongId = null;
+        let plotInitialized = false;
+
+        // Data caches - keyed by dataset to allow quick switching
+        let dataCache = {
+            coverhunter: { clusterData: null, coversData: null, coverLinks: null, verifiedCovers: null, metadata: null },
+            vinet: { clusterData: null, coversData: null, coverLinks: null, verifiedCovers: null, metadata: null }
+        };
+
+        // Build genre pills
+        function buildGenrePills() {
+            const container = document.getElementById('genre-pills');
+            container.innerHTML = '';
+
+            Object.entries(metaClusterNames).forEach(([metaId, metaName]) => {
+                const pill = document.createElement('button');
+                pill.className = 'genre-pill';
+                pill.dataset.meta = metaId;
+                pill.style.setProperty('--genre-color', metaClusterColors[metaId]);
+                pill.textContent = `${genreIcons[metaId]} ${metaName}`;
+                pill.onclick = () => toggleGenre(parseInt(metaId));
+                container.appendChild(pill);
+            });
+        }
+
+        function toggleGenre(metaId) {
+            const clustersInMeta = Object.entries(clusterToMeta)
+                .filter(([_, meta]) => meta === metaId)
+                .map(([clusterId, _]) => parseInt(clusterId));
+
+            const allActive = clustersInMeta.every(id => activeClusters.has(id));
+
+            if (allActive) {
+                clustersInMeta.forEach(id => activeClusters.delete(id));
+            } else {
+                clustersInMeta.forEach(id => activeClusters.add(id));
+            }
+
+            updateUIState();
+            updateVisibility();
+        }
+
+        function updateUIState() {
+            document.querySelectorAll('.genre-pill').forEach(pill => {
+                const metaId = parseInt(pill.dataset.meta);
+                const clustersInMeta = Object.entries(clusterToMeta)
+                    .filter(([_, meta]) => meta === metaId)
+                    .map(([clusterId, _]) => parseInt(clusterId));
+
+                const activeCount = clustersInMeta.filter(id => activeClusters.has(id)).length;
+                pill.classList.toggle('active', activeCount > 0);
+            });
+            updateDropdownLabels();
+        }
+
+        function updateVisibility() {
+            if (plotTraces.length === 0) return;
+            const visibility = plotTraces.map((_, i) => currentMode === 'covers' || activeClusters.has(i));
+            Plotly.restyle('plot-container', { visible: visibility });
+        }
+
+        function selectAll() {
+            Object.keys(clusterLabels).forEach(id => activeClusters.add(parseInt(id)));
+            updateUIState();
+            updateVisibility();
+        }
+
+        function selectNone() {
+            activeClusters.clear();
+            updateUIState();
+            updateVisibility();
+        }
+
+        // Build cluster dropdown
+        function buildClusterDropdown() {
+            const select = document.getElementById('cluster-select');
+            select.innerHTML = '<option value="" disabled selected>Toggle subcluster...</option>';
+
+            Object.entries(metaClusterNames).forEach(([metaId, metaName]) => {
+                const optgroup = document.createElement('optgroup');
+                optgroup.label = `${genreIcons[metaId]} ${metaName}`;
+
+                const clustersInMeta = Object.entries(clusterToMeta)
+                    .filter(([_, meta]) => meta === parseInt(metaId))
+                    .map(([clusterId, _]) => parseInt(clusterId))
+                    .sort((a, b) => a - b);
+
+                clustersInMeta.forEach(clusterId => {
+                    const option = document.createElement('option');
+                    option.value = clusterId;
+                    option.textContent = clusterLabels[clusterId].split('•')[0].trim();
+                    optgroup.appendChild(option);
+                });
+
+                select.appendChild(optgroup);
+            });
+
+            select.addEventListener('change', function() {
+                const id = parseInt(this.value);
+                if (!isNaN(id)) {
+                    if (activeClusters.has(id)) {
+                        activeClusters.delete(id);
+                    } else {
+                        activeClusters.add(id);
+                    }
+                    updateUIState();
+                    updateVisibility();
+                }
+                this.selectedIndex = 0;
+            });
+        }
+
+        function updateDropdownLabels() {
+            document.querySelectorAll('#cluster-select option').forEach(opt => {
+                const id = parseInt(opt.value);
+                if (!isNaN(id)) {
+                    const name = clusterLabels[id].split('•')[0].trim();
+                    opt.textContent = (activeClusters.has(id) ? '✓ ' : '   ') + name;
+                }
+            });
+        }
+
+        // Initialize
+        buildGenrePills();
+        buildClusterDropdown();
+        updateUIState();
+
+        // Search functionality
+        const searchInput = document.getElementById('search-input');
+        const autocompleteList = document.getElementById('autocomplete-list');
+
+        searchInput.addEventListener('input', () => {
+            const query = searchInput.value.toLowerCase().trim();
+            if (query.length < 2) {
+                autocompleteList.classList.remove('visible');
+                return;
+            }
+
+            const matches = allSongs
+                .filter(s =>
+                    (s.title && s.title.toLowerCase().includes(query)) ||
+                    (s.channel && s.channel.toLowerCase().includes(query))
+                )
+                .slice(0, 8);
+
+            if (matches.length === 0) {
+                autocompleteList.classList.remove('visible');
+                return;
+            }
+
+            autocompleteList.innerHTML = matches.map(song => `
+                <div class="autocomplete-item" data-video-id="${song.video_id}">
+                    <img src="https://img.youtube.com/vi/${song.video_id}/default.jpg" alt="">
+                    <div class="item-info">
+                        <div class="item-title">${song.title || 'Unknown'}</div>
+                        <div class="item-artist">${song.channel || ''}</div>
+                    </div>
+                </div>
+            `).join('');
+            autocompleteList.classList.add('visible');
+        });
+
+        autocompleteList.addEventListener('click', (e) => {
+            const item = e.target.closest('.autocomplete-item');
+            if (item) {
+                const videoId = item.dataset.videoId;
+                selectSong(videoId);
+                searchInput.value = '';
+                autocompleteList.classList.remove('visible');
+            }
+        });
+
+        // Hide autocomplete on click outside
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.search-container')) {
+                autocompleteList.classList.remove('visible');
+            }
+        });
+
+        function getDataFile(baseName) {
+            // Returns suffixed filename for vinet dataset
+            if (currentDataset === 'vinet') {
+                const [name, ext] = baseName.split('.');
+                return `${name}_vinet.${ext}`;
+            }
+            return baseName;
+        }
+
+        async function loadMetadata() {
+            const cache = dataCache[currentDataset];
+            if (!cache.metadata) {
+                try {
+                    const response = await fetch(getDataFile('metadata.json'));
+                    if (response.ok) cache.metadata = await response.json();
+                } catch (e) {
+                    console.warn('Could not load metadata:', e);
+                }
+            }
+            return cache.metadata;
+        }
+
+        function updateSubtitle(meta, isCoversMode) {
+            const subtitle = document.getElementById('subtitle');
+            if (!meta) {
+                subtitle.textContent = '';
+                return;
+            }
+            // Use API stats count if available, fallback to metadata
+            const songCount = (lastHealthStats && lastHealthStats.total_songs) ? lastHealthStats.total_songs : meta.songs;
+            if (isCoversMode) {
+                subtitle.innerHTML = `${songCount.toLocaleString()} songs \u2022 ` +
+                    `<span title="Cover pairs verified using Discogs dataset clique IDs">${meta.verified_cover_pairs.toLocaleString()} verified cover pairs</span> \u2022 ` +
+                    `<span title="For songs with covers, the most similar song is a true cover ${Math.round(meta.precision_at_1 * 100)}% of the time">Precision@1: ${Math.round(meta.precision_at_1 * 100)}%</span>`;
+            } else {
+                subtitle.textContent = `${songCount.toLocaleString()} songs \u2022 ${meta.genres} genres \u2022 ${meta.clusters} sub-clusters`;
+            }
+        }
+
+        async function loadData() {
+            try {
+                if (!plotInitialized) {
+                    document.getElementById('plot-container').innerHTML = '<div class="loading">Loading...</div>';
+                }
+
+                const cache = dataCache[currentDataset];
+                const meta = await loadMetadata();
+                if (currentMode !== 'addsong') {
+                    updateSubtitle(meta, currentMode === 'covers');
+                }
+
+                let data;
+
+                if (currentMode === 'covers') {
+                    if (!cache.coversData) {
+                        const response = await fetch(getDataFile('covers_data.json'));
+                        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                        cache.coversData = await response.json();
+                    }
+                    data = cache.coversData;
+
+                    if (!cache.coverLinks) {
+                        const linksResponse = await fetch(getDataFile('cover_links.json'));
+                        if (linksResponse.ok) cache.coverLinks = await linksResponse.json();
+                    }
+                    coverLinks = cache.coverLinks || {};
+
+                    if (!cache.verifiedCovers) {
+                        const verifiedResponse = await fetch(getDataFile('verified_covers.json'));
+                        if (verifiedResponse.ok) cache.verifiedCovers = await verifiedResponse.json();
+                    }
+                    verifiedCovers = cache.verifiedCovers || {};
+                } else {
+                    if (!cache.clusterData) {
+                        const response = await fetch(getDataFile('data.json'));
+                        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                        cache.clusterData = await response.json();
+                    }
+                    data = cache.clusterData;
+                }
+
+                createPlot(data);
+            } catch (error) {
+                document.getElementById('plot-container').innerHTML =
+                    `<div class="loading" style="color:#f44336;">Error: ${error.message}</div>`;
+            }
+        }
+
+        function switchDataset(dataset) {
+            if (dataset === currentDataset) return;
+            currentDataset = dataset;
+
+            // Reset plot state
+            plotInitialized = false;
+            selectedSongId = null;
+            document.getElementById('song-panel').classList.remove('visible');
+
+            // Reload data with new dataset
+            loadData();
+        }
+
+        function switchMode(mode) {
+            if (mode === currentMode) return;
+            currentMode = mode;
+
+            // Update tab styling
+            document.querySelectorAll('.mode-tab').forEach(tab => {
+                tab.classList.toggle('active', tab.dataset.mode === mode);
+            });
+
+            const isAddSongMode = mode === 'addsong';
+            const isCoversMode = mode === 'covers';
+
+            // Show/hide containers based on mode
+            document.querySelector('.controls').style.display = isAddSongMode ? 'none' : 'block';
+            document.querySelector('.plot-wrapper').style.display = isAddSongMode ? 'none' : 'block';
+            document.getElementById('song-panel').style.display = isAddSongMode ? 'none' : '';
+            document.getElementById('addsong-container').style.display = isAddSongMode ? 'block' : 'none';
+
+            if (isAddSongMode) {
+                document.getElementById('subtitle').textContent = 'Search by YouTube link or title/artist';
+                return;
+            }
+
+            // Update subtitle and hide cluster controls in covers mode
+            const meta = dataCache[currentDataset].metadata;
+            updateSubtitle(meta, isCoversMode);
+            document.getElementById('genre-pills').style.display = isCoversMode ? 'none' : 'flex';
+            document.querySelector('.controls-row').style.display = isCoversMode ? 'none' : 'flex';
+
+            angle = 0;
+            stopRotation();
+            activeClusters = new Set([1, 2, 4, 5, 8, 9, 11, 12, 13, 14, 15, 17, 18, 19, 22, 24]);
+            updateUIState();
+            const songToReselect = selectedSongId;
+
+            // Fast path: if plot exists and data is cached, restyle traces in-place (no WebGL rebuild)
+            const cache = dataCache[currentDataset];
+            const cachedData = isCoversMode ? cache.coversData : cache.clusterData;
+            if (plotInitialized && cachedData) {
+                // Load cover metadata if needed
+                if (isCoversMode) {
+                    coverLinks = cache.coverLinks || {};
+                    verifiedCovers = cache.verifiedCovers || {};
+                }
+                allSongs = cachedData;
+                restyleTraces(cachedData);
+                if (songToReselect) selectSong(songToReselect);
+                startRotation();
+            } else {
+                loadData().then(() => {
+                    if (songToReselect) selectSong(songToReselect);
+                });
+            }
+        }
+
+        // Update existing cluster traces via restyle (avoids newPlot, preserves camera)
+        function restyleTraces(data) {
+            const clusters = {};
+            data.forEach(d => {
+                if (!clusters[d.cluster]) clusters[d.cluster] = [];
+                clusters[d.cluster].push(d);
+            });
+
+            const maxMobilePoints = 8000;
+            const sampleRate = isMobile ? Math.min(1, maxMobilePoints / data.length) : 1;
+
+            const sortedEntries = Object.entries(clusters).sort((a, b) => parseInt(a[0]) - parseInt(b[0]));
+            const traceIndices = sortedEntries.map((_, i) => i);
+
+            const update = { x: [], y: [], z: [], text: [], customdata: [], visible: [] };
+            sortedEntries.forEach(([clusterId, songs]) => {
+                let plotSongs = songs;
+                if (sampleRate < 1) {
+                    plotSongs = songs.filter(s =>
+                        s.video_id === selectedSongId ||
+                        s.outlier_score > 2.5 ||
+                        Math.random() < sampleRate
+                    );
+                }
+                update.x.push(plotSongs.map(s => s.x));
+                update.y.push(plotSongs.map(s => s.y));
+                update.z.push(plotSongs.map(s => s.z));
+                update.text.push(plotSongs.map(s => s.title || 'Unknown'));
+                update.customdata.push(plotSongs.map(s => ({
+                    channel: s.channel,
+                    video_id: s.video_id,
+                    outlier_score: s.outlier_score || 0
+                })));
+                update.visible.push(currentMode === 'covers' || activeClusters.has(parseInt(clusterId)));
+            });
+
+            Plotly.restyle('plot-container', update, traceIndices);
+
+            // Update plotTraces array to stay in sync
+            traceIndices.forEach((ti, i) => {
+                plotTraces[ti].x = update.x[i];
+                plotTraces[ti].y = update.y[i];
+                plotTraces[ti].z = update.z[i];
+                plotTraces[ti].text = update.text[i];
+                plotTraces[ti].customdata = update.customdata[i];
+                plotTraces[ti].visible = update.visible[i];
+            });
+
+            // Hide selection marker
+            const selIdx = plotTraces.length - 1;
+            Plotly.restyle('plot-container', { visible: [false] }, [selIdx]);
+        }
+
+        function createPlot(data) {
+            allSongs = data;
+            const clusters = {};
+            data.forEach(d => {
+                if (!clusters[d.cluster]) clusters[d.cluster] = [];
+                clusters[d.cluster].push(d);
+            });
+
+            // On mobile, downsample to ~8k points for smoother rotation
+            const maxMobilePoints = 8000;
+            const sampleRate = isMobile ? Math.min(1, maxMobilePoints / data.length) : 1;
+
+            plotTraces = Object.entries(clusters).sort((a, b) => parseInt(a[0]) - parseInt(b[0])).map(([clusterId, songs]) => {
+                let plotSongs = songs;
+                if (sampleRate < 1) {
+                    // Always keep selected song and outliers; randomly sample the rest
+                    plotSongs = songs.filter(s =>
+                        s.video_id === selectedSongId ||
+                        s.outlier_score > 2.5 ||
+                        Math.random() < sampleRate
+                    );
+                }
+                return {
+                    type: 'scatter3d',
+                    mode: 'markers',
+                    name: clusterLabels[clusterId],
+                    visible: currentMode === 'covers' || activeClusters.has(parseInt(clusterId)),
+                    x: plotSongs.map(s => s.x),
+                    y: plotSongs.map(s => s.y),
+                    z: plotSongs.map(s => s.z),
+                    text: plotSongs.map(s => s.title || 'Unknown'),
+                    customdata: plotSongs.map(s => ({
+                        channel: s.channel,
+                        video_id: s.video_id,
+                        outlier_score: s.outlier_score || 0
+                    })),
+                    hoverinfo: 'text',
+                    marker: {
+                        size: isMobile ? 3 : plotSongs.map(s => s.outlier_score > 2.5 ? 8 : 3),
+                        color: clusterColors[clusterId] || '#888',
+                        opacity: 0.7
+                    }
+                };
+            });
+
+            // Add selection marker trace (last trace, initially hidden)
+            plotTraces.push({
+                type: 'scatter3d',
+                mode: 'markers+text',
+                name: '_selection',
+                showlegend: false,
+                visible: false,
+                x: [0], y: [0], z: [0],
+                text: [''],
+                textposition: 'top center',
+                textfont: { size: 11, color: '#fff' },
+                hoverinfo: 'none',
+                marker: {
+                    size: 5,
+                    color: '#e62117',
+                    symbol: 'diamond',
+                    opacity: 1,
+                    line: { color: '#fff', width: 1 }
+                }
+            });
+
+            // Preserve current camera on subsequent calls, use default on first load
+            const currentCamera = getCurrentCamera();
+            const camera = currentCamera || {
+                eye: { x: 1.0 * Math.cos(0), y: 1.0 * Math.sin(0), z: 0.5 },
+                center: { x: 0, y: 0, z: 0 }
+            };
+
+            const container = document.getElementById('plot-container');
+            const layout = {
+                autosize: true,
+                width: container.clientWidth,
+                height: container.clientHeight,
+                scene: {
+                    xaxis: { showticklabels: false, title: '', gridcolor: 'rgba(255,255,255,0.05)', showgrid: false },
+                    yaxis: { showticklabels: false, title: '', gridcolor: 'rgba(255,255,255,0.05)', showgrid: false },
+                    zaxis: { showticklabels: false, title: '', gridcolor: 'rgba(255,255,255,0.05)', showgrid: false },
+                    aspectmode: 'data',
+                    camera: camera,
+                    bgcolor: '#000000'
+                },
+                showlegend: false,
+                legend: {
+                    font: { size: 9, family: 'Roboto' },
+                    itemsizing: 'constant',
+                    y: 0.98,
+                    yanchor: 'top',
+                    bgcolor: 'rgba(255,255,255,0.9)'
+                },
+                margin: { l: 0, r: 0, t: 0, b: 0 },
+                paper_bgcolor: '#000000',
+                hovermode: 'closest',
+                uirevision: 'preserved'
+            };
+
+            const plotConfig = {
+                responsive: true,
+                scrollZoom: true,
+                displayModeBar: !isMobile,
+                displaylogo: false
+            };
+
+            // Always use newPlot to fully reinitialize the 3D scene.
+            // Plotly.react can leave the scene camera controller in a state
+            // where the first interaction after tab switch resets the camera.
+            Plotly.newPlot('plot-container', plotTraces, layout, plotConfig);
+            plotInitialized = true;
+
+            // Show song info on hover/click
+            const plotDiv = document.getElementById('plot-container');
+
+            function showSongInfo(data) {
+                const pt = data.points[0];
+                const title = pt.text;
+                const { channel, video_id, outlier_score } = pt.customdata;
+                const x = pt.x, y = pt.y, z = pt.z;
+                selectedSongId = video_id;
+
+                const container = document.getElementById('player-container');
+                container.dataset.videoId = video_id;
+                container.innerHTML = `
+                    <img class="thumbnail" id="song-thumbnail" src="https://img.youtube.com/vi/${video_id}/mqdefault.jpg" alt="">
+                    <div class="play-btn"></div>
+                `;
+                document.getElementById('song-title').textContent = title;
+                document.getElementById('song-artist').textContent = channel || 'Unknown';
+                const badge = document.getElementById('outlier-badge');
+                const clusterId = pt.curveNumber;
+                const metaId = clusterToMeta[clusterId];
+                const metaName = metaClusterNames[metaId] || '';
+                const clusterName = (clusterLabels[clusterId] || '').split('•')[0].trim();
+                if (outlier_score > 2.5) {
+                    badge.textContent = `⚠️ Outlier (score: ${outlier_score.toFixed(1)})`;
+                    badge.style.color = '#d97706';
+                } else {
+                    badge.textContent = `${metaName} › ${clusterName}`;
+                    badge.style.color = metaClusterColors[metaId] || '#666';
+                }
+                // Show covers + similar in covers mode, hide in clusters mode
+                const similarSongsDiv = document.getElementById('similar-songs');
+
+                if (currentMode === 'covers') {
+                    similarSongsDiv.style.display = '';
+
+                    // Get all verified covers (lookup directly, not via cover_links)
+                    const verifiedIds = verifiedCovers[video_id] || [];
+                    const linkDistances = {};
+                    (coverLinks[video_id] || []).forEach(link => { linkDistances[link.id] = link.dist; });
+
+                    const coverSongs = verifiedIds
+                        .map(vid => {
+                            const song = allSongs.find(s => s.video_id === vid);
+                            const dist = linkDistances[vid] || 0.2; // use link dist if available
+                            return song ? { song, dist, isCover: true } : null;
+                        })
+                        .filter(Boolean)
+                        .slice(0, 5);
+
+                    // Fill remaining slots with similar songs from cover_links (cosine distance)
+                    const remaining = 5 - coverSongs.length;
+                    const coverIds = new Set(coverSongs.map(c => c.song.video_id));
+                    const verifiedSet = new Set(verifiedIds);
+                    const similarSongs = remaining > 0 ? (coverLinks[video_id] || [])
+                        .filter(link => !verifiedSet.has(link.id) && !coverIds.has(link.id))
+                        .map(link => {
+                            const song = allSongs.find(s => s.video_id === link.id);
+                            return song ? { song, dist: link.dist, isCover: false } : null;
+                        })
+                        .filter(Boolean)
+                        .slice(0, remaining) : [];
+
+                    const renderItem = ({ song, dist, isCover }) => {
+                        const tooltip = `Similarity: ${((1 - dist) * 100).toFixed(1)}%`;
+                        const isVerified = isCover && verifiedCovers[video_id] && verifiedCovers[video_id].includes(song.video_id);
+                        const borderStyle = isCover ? 'border-color: #f59e0b' : '';
+                        return `
+                        <div class="similar-item" data-video-id="${song.video_id}" onclick="selectSong('${song.video_id}')" title="${tooltip}">
+                            <img src="https://img.youtube.com/vi/${song.video_id}/default.jpg" alt="" style="${borderStyle}">
+                            <div class="sim-title">${isVerified ? '<span class="verified-badge">✓</span> ' : ''}${song.title || 'Unknown'}</div>
+                            <div class="sim-artist">${song.channel || ''}</div>
+                        </div>`;
+                    };
+
+                    // Build headers
+                    let headersHtml = '';
+                    if (coverSongs.length > 0 && similarSongs.length > 0) {
+                        headersHtml = `<span>Covers (${coverSongs.length})</span><span style="flex:1"></span><span>Similar (${similarSongs.length})</span>`;
+                    } else if (coverSongs.length > 0) {
+                        headersHtml = `<span>Covers (${coverSongs.length})</span>`;
+                    } else {
+                        headersHtml = `<span>Similar songs</span>`;
+                    }
+                    document.getElementById('similar-headers').innerHTML = headersHtml;
+
+                    // Build list
+                    let html = '';
+                    if (coverSongs.length > 0) {
+                        html += coverSongs.map(renderItem).join('');
+                        if (similarSongs.length > 0) {
+                            html += '<div class="similar-divider"></div>';
+                        }
+                    }
+                    html += similarSongs.map(renderItem).join('');
+                    document.getElementById('similar-list').innerHTML = html;
+                } else {
+                    similarSongsDiv.style.display = 'none';
+                }
+                document.getElementById('song-panel').classList.add('visible');
+
+                // Highlight selected point using the selection marker trace (last trace)
+                // Uses restyle instead of relayout to avoid camera reset
+                const selIdx = plotTraces.length - 1;
+                Plotly.restyle('plot-container', {
+                    x: [[x]], y: [[y]], z: [[z]],
+                    text: [['']],
+                    visible: [true]
+                }, [selIdx]);
+
+                // Show native tooltip on the clicked point
+                const curveNumber = pt.curveNumber;
+                const pointNumber = pt.pointNumber;
+                Plotly.Fx.hover('plot-container', [{ curveNumber, pointNumber }]);
+            }
+
+            window.selectSong = function(videoId) {
+                const song = allSongs.find(s => s.video_id === videoId);
+                if (song) {
+                    // Make sure the cluster is visible first
+                    if (!activeClusters.has(song.cluster)) {
+                        activeClusters.add(song.cluster);
+                        updateUIState();
+                        updateVisibility();
+                    }
+
+                    // Show song info panel
+                    showSongInfo({
+                        points: [{
+                            text: song.title,
+                            x: song.x, y: song.y, z: song.z,
+                            curveNumber: song.cluster,
+                            customdata: {
+                                channel: song.channel,
+                                video_id: song.video_id,
+                                outlier_score: song.outlier_score || 0
+                            }
+                        }]
+                    });
+
+                    // Stop rotation to focus on the point
+                    stopRotation();
+                }
+            };
+
+            // Attach DOM event listeners once (they survive newPlot)
+            if (!plotDiv._domListenersAttached) {
+                plotDiv._domListenersAttached = true;
+
+                // Click thumbnail to play video
+                document.getElementById('player-container').addEventListener('click', function() {
+                    const videoId = this.dataset.videoId;
+                    if (videoId) {
+                        this.innerHTML = `<iframe src="https://www.youtube.com/embed/${videoId}?autoplay=1" allow="autoplay; encrypted-media" allowfullscreen></iframe>`;
+                    }
+                });
+
+                // Track drag to distinguish from click
+                plotDiv.addEventListener('mousedown', (e) => {
+                    plotDiv._startPos = { x: e.clientX, y: e.clientY };
+                    plotDiv._startTime = Date.now();
+                    plotDiv._isDragging = false;
+                });
+                plotDiv.addEventListener('mousemove', (e) => {
+                    if (plotDiv._startPos) {
+                        const dist = Math.sqrt((e.clientX - plotDiv._startPos.x) ** 2 + (e.clientY - plotDiv._startPos.y) ** 2);
+                        if (dist > 5) plotDiv._isDragging = true;
+                    }
+                });
+                plotDiv.addEventListener('mouseup', () => { plotDiv._startPos = null; });
+
+                // Touch events for mobile
+                plotDiv.addEventListener('touchstart', (e) => {
+                    if (e.touches.length > 0) {
+                        plotDiv._startPos = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+                        plotDiv._startTime = Date.now();
+                        plotDiv._isDragging = false;
+                    }
+                }, { passive: true });
+                plotDiv.addEventListener('touchmove', (e) => {
+                    if (plotDiv._startPos && e.touches.length > 0) {
+                        const dist = Math.sqrt((e.touches[0].clientX - plotDiv._startPos.x) ** 2 + (e.touches[0].clientY - plotDiv._startPos.y) ** 2);
+                        if (dist > 15) plotDiv._isDragging = true;
+                    }
+                }, { passive: true });
+                plotDiv.addEventListener('touchend', () => { plotDiv._startPos = null; }, { passive: true });
+            }
+
+            // Re-attach plotly click listener after each newPlot (newPlot purges plotly events)
+            plotDiv.on('plotly_click', (data) => {
+                // Ignore if dragged or interaction took too long (> 300ms = likely rotation)
+                const elapsed = plotDiv._startTime ? Date.now() - plotDiv._startTime : 0;
+                if (plotDiv._isDragging || elapsed > 300) {
+                    plotDiv._isDragging = false;
+                    return;
+                }
+                showSongInfo(data);
+            });
+
+            if (!rotationListenersAttached) {
+                attachRotationListeners();
+            }
+            startRotation();
+        }
+
+        let isRotating = true;
+        let angle = 0;
+        let rotationFrameId = null;
+        let rotationListenersAttached = false;
+
+        function getCurrentCamera() {
+            const plotDiv = document.getElementById('plot-container');
+            try {
+                const scene = plotDiv._fullLayout && plotDiv._fullLayout.scene;
+                if (scene && scene.camera) {
+                    return {
+                        eye: { ...scene.camera.eye },
+                        center: { ...scene.camera.center },
+                        up: scene.camera.up ? { ...scene.camera.up } : undefined
+                    };
+                }
+            } catch (e) {}
+            return null;
+        }
+
+        function syncAngleFromCamera() {
+            const cam = getCurrentCamera();
+            if (cam && cam.eye) {
+                angle = Math.atan2(cam.eye.y, cam.eye.x);
+            }
+        }
+
+        function attachRotationListeners() {
+            const container = document.getElementById('plot-container');
+            container.addEventListener('mousedown', stopRotation);
+            container.addEventListener('touchstart', stopRotation);
+            rotationListenersAttached = true;
+        }
+
+        function stopRotation() {
+            isRotating = false;
+            if (rotationFrameId !== null) {
+                cancelAnimationFrame(rotationFrameId);
+                rotationFrameId = null;
+            }
+        }
+
+        function startRotation() {
+            isRotating = true;
+            if (rotationFrameId !== null) return; // already running
+            syncAngleFromCamera();
+            const cam = getCurrentCamera();
+            const radius = cam ? Math.sqrt(cam.eye.x ** 2 + cam.eye.y ** 2) : 1.0;
+            const zEye = cam ? cam.eye.z : 0.5;
+            const angleStep = isMobile ? 0.006 : 0.002;
+            function rotate() {
+                if (isRotating) {
+                    angle += angleStep;
+                    Plotly.relayout('plot-container', {
+                        'scene.camera.eye': {
+                            x: radius * Math.cos(angle),
+                            y: radius * Math.sin(angle),
+                            z: zEye
+                        }
+                    });
+                    rotationFrameId = requestAnimationFrame(rotate);
+                } else {
+                    rotationFrameId = null;
+                }
+            }
+            rotationFrameId = requestAnimationFrame(rotate);
+        }
+
+        function resetView() {
+            angle = 0;
+            activeClusters = new Set([1, 2, 4, 5, 8, 9, 11, 12, 13, 14, 15, 17, 18, 19, 22, 24]);
+            updateUIState();
+            updateVisibility();
+            startRotation();
+        }
+
+        function zoomIn() {
+            const camera = getCurrentCamera();
+            if (!camera) return;
+            stopRotation();
+            const scale = 0.75;
+            Plotly.relayout('plot-container', {
+                'scene.camera.eye': {
+                    x: camera.eye.x * scale,
+                    y: camera.eye.y * scale,
+                    z: camera.eye.z * scale
+                }
+            }).then(() => startRotation());
+        }
+
+        function zoomOut() {
+            const camera = getCurrentCamera();
+            if (!camera) return;
+            stopRotation();
+            const scale = 1.33;
+            Plotly.relayout('plot-container', {
+                'scene.camera.eye': {
+                    x: camera.eye.x * scale,
+                    y: camera.eye.y * scale,
+                    z: camera.eye.z * scale
+                }
+            }).then(() => startRotation());
+        }
+
+        function extractYouTubeId(url) {
+            const patterns = [
+                /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/,
+                /^([a-zA-Z0-9_-]{11})$/
+            ];
+            for (const pattern of patterns) {
+                const match = url.match(pattern);
+                if (match) return match[1];
+            }
+            return null;
+        }
+
+        let lastPreviewId = null;
+        let lastYouTubeTitle = '';
+        let lastYouTubeChannel = '';
+        let searchTimeout = null;
+        let lastSearchedId = null;
+
+        function handleUrlInput() {
+            const url = document.getElementById('youtube-url').value.trim();
+            const videoId = extractYouTubeId(url);
+            const acList = document.getElementById('addsong-autocomplete');
+
+            if (searchTimeout) clearTimeout(searchTimeout);
+
+            if (videoId) {
+                // YouTube URL detected — hide autocomplete, show preview, auto-search
+                acList.classList.remove('visible');
+                previewThumbnail();
+                if (videoId !== lastSearchedId) {
+                    searchTimeout = setTimeout(() => {
+                        lastSearchedId = videoId;
+                        searchCovers();
+                    }, 500);
+                }
+            } else if (url.length >= 2) {
+                // Text search — show autocomplete from database
+                const query = url.toLowerCase();
+                const matches = (allSongs || [])
+                    .filter(s =>
+                        (s.title && s.title.toLowerCase().includes(query)) ||
+                        (s.channel && s.channel.toLowerCase().includes(query))
+                    )
+                    .slice(0, 8);
+                if (matches.length > 0) {
+                    acList.innerHTML = matches.map(song => `
+                        <div class="autocomplete-item" data-video-id="${song.video_id}">
+                            <img src="https://img.youtube.com/vi/${song.video_id}/default.jpg" alt="">
+                            <div class="item-info">
+                                <div class="item-title">${song.title || 'Unknown'}</div>
+                                <div class="item-artist">${song.channel || ''}</div>
+                            </div>
+                        </div>
+                    `).join('');
+                    acList.classList.add('visible');
+                } else {
+                    acList.classList.remove('visible');
+                }
+                document.getElementById('url-preview').style.display = 'none';
+            } else {
+                acList.classList.remove('visible');
+                document.getElementById('url-preview').style.display = 'none';
+            }
+        }
+
+        // Handle click on addsong autocomplete item
+        document.addEventListener('click', (e) => {
+            const acList = document.getElementById('addsong-autocomplete');
+            const item = e.target.closest('#addsong-autocomplete .autocomplete-item');
+            if (item) {
+                const videoId = item.dataset.videoId;
+                document.getElementById('youtube-url').value = `https://youtube.com/watch?v=${videoId}`;
+                acList.classList.remove('visible');
+                lastSearchedId = videoId;
+                previewThumbnail();
+                searchCovers();
+            } else if (!e.target.closest('#addsong-autocomplete') && !e.target.closest('#youtube-url')) {
+                acList.classList.remove('visible');
+            }
+        });
+
+        async function previewThumbnail() {
+            const url = document.getElementById('youtube-url').value.trim();
+            const preview = document.getElementById('url-preview');
+            const thumbnail = document.getElementById('preview-thumbnail');
+            const link = document.getElementById('preview-link');
+            const titleEl = document.getElementById('preview-title');
+
+            const videoId = extractYouTubeId(url);
+            if (videoId) {
+                thumbnail.src = `https://img.youtube.com/vi/${videoId}/default.jpg`;
+                link.href = `https://youtube.com/watch?v=${videoId}`;
+                preview.style.display = 'flex';
+
+                // Fetch title and channel if new video
+                if (videoId !== lastPreviewId) {
+                    lastPreviewId = videoId;
+                    lastYouTubeTitle = '';
+                    lastYouTubeChannel = '';
+                    titleEl.textContent = 'Loading...';
+                    try {
+                        const resp = await fetch(`https://www.youtube.com/oembed?url=https://youtube.com/watch?v=${videoId}&format=json`);
+                        if (resp.ok) {
+                            const data = await resp.json();
+                            lastYouTubeTitle = data.title || videoId;
+                            lastYouTubeChannel = (data.author_name || '').replace(/ - Topic$/, '');
+                            const channelLine = lastYouTubeChannel ? `<div style="font-size: 0.85em; color: #888;">YT: ${lastYouTubeChannel}</div>` : '';
+                            titleEl.innerHTML = `<strong>${lastYouTubeTitle}</strong>${channelLine}`;
+                        } else {
+                            lastYouTubeTitle = videoId;
+                            titleEl.textContent = videoId;
+                        }
+                    } catch {
+                        lastYouTubeTitle = videoId;
+                        titleEl.textContent = videoId;
+                    }
+                }
+            } else {
+                preview.style.display = 'none';
+                lastPreviewId = null;
+                lastYouTubeTitle = '';
+            }
+        }
+
+        async function searchCovers() {
+            const url = document.getElementById('youtube-url').value.trim();
+            const status = document.getElementById('addsong-status');
+            const results = document.getElementById('addsong-results');
+
+            if (!url) {
+                status.textContent = 'Please enter a YouTube URL';
+                return;
+            }
+
+            // Show "Searching..." in preview title immediately
+            const titleEl = document.getElementById('preview-title');
+            if (lastYouTubeTitle) {
+                const channelLine = lastYouTubeChannel ? `<div style="font-size: 0.85em; color: #888;">YT: ${lastYouTubeChannel}</div>` : '';
+                titleEl.innerHTML = `<strong>${lastYouTubeTitle}</strong>${channelLine}<div style="font-size: 0.85em; color: #1976D2;">Searching...</div>`;
+            }
+
+            status.innerHTML = '<span style="color: #1976D2;">Processing... (this may take 10-20 seconds)</span>';
+            results.innerHTML = '';
+
+            try {
+                const resp = await fetch('/api/search', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({url: url, top_k: 3})
+                });
+                const data = await resp.json();
+
+                if (data.error) {
+                    status.innerHTML = `<span style="color: #e62117;">Error: ${data.error}</span>`;
+                    return;
+                }
+
+                // Keep YouTube title, add iTunes match info below
+                const previewTitle = document.getElementById('preview-title');
+                const ytTitle = lastYouTubeTitle || data.query.title || 'Unknown';
+                const ytChannel = lastYouTubeChannel || data.query.yt_channel || '';
+                const channelLine = ytChannel ? `<div style="font-size: 0.85em; color: #888;">YT: ${ytChannel}</div>` : '';
+                const queryTooltip = `ID: ${data.query.youtube_id} | Hash: ${data.query.hash || ''}${data.query.track_id ? ' | TrackID: ' + data.query.track_id : ''}${data.query.clique_id ? ' | Clique: ' + data.query.clique_id : ''}${data.query.preview_url ? '\nPreview: ' + data.query.preview_url : ''}`;
+                document.getElementById('url-preview').title = queryTooltip;
+                previewTitle.innerHTML = `<strong>${ytTitle}</strong>${channelLine}<div style="font-size: 0.85em; color: #555;">iTunes: ${data.query.artist} - ${data.query.track}</div>`;
+
+                // Build status (no duplicate thumbnail)
+                let statusHtml = '';
+                if (data.query.same_preview_in_db) {
+                    statusHtml += `<span style="font-size: 0.85em; color: #e65100;">⚠️ Same iTunes preview found in database</span><br>`;
+                }
+                statusHtml += `Top 3 similar songs:`;
+                status.innerHTML = statusHtml;
+
+                // Add to search history
+                addToSearchHistory(data.query);
+
+                const queryCliqueId = data.query.clique_id;
+                const resultsHtml = data.results.map((r, i) => {
+                    const samePreviewBadge = r.same_preview ?
+                        '<span style="background: #fff3e0; color: #e65100; padding: 2px 6px; border-radius: 4px; font-size: 0.75em; margin-left: 8px;">same preview</span>' : '';
+
+                    // Categorize: verified cover, probable cover, or similar song
+                    const isVerifiedCover = queryCliqueId && r.clique_id && queryCliqueId === r.clique_id;
+                    const similarityPct = r.similarity * 100;
+                    let categoryBadge = '';
+                    if (isVerifiedCover) {
+                        categoryBadge = '<span style="background: #e8f5e9; color: #2e7d32; padding: 2px 8px; border-radius: 4px; font-size: 0.75em; margin-left: 8px;">✓ Verified Cover</span>';
+                    } else if (similarityPct >= 80) {
+                        categoryBadge = '<span style="background: #fff8e1; color: #f57c00; padding: 2px 8px; border-radius: 4px; font-size: 0.75em; margin-left: 8px;">Probable Cover</span>';
+                    } else {
+                        categoryBadge = '<span style="background: #f5f5f5; color: #757575; padding: 2px 8px; border-radius: 4px; font-size: 0.75em; margin-left: 8px;">Similar Song</span>';
+                    }
+
+                    const ytLine = r.yt_channel ? '<div style="color: #888;">YT: ' + r.yt_channel + '</div>' : '';
+                    const itunesLine = r.itunes_artist ? '<div style="color: #555;">iTunes: ' + r.itunes_artist + ' - ' + r.itunes_track + '</div>' : '';
+                    const metaLine = ytLine + itunesLine;
+                    const similarityBadge = '<span style="color: #999; font-size: 0.75em; margin-left: 8px;">' + Math.round(similarityPct) + '%</span>';
+                    const tooltip = `ID: ${r.youtube_id} | Hash: ${r.hash}${r.track_id ? ' | TrackID: ' + r.track_id : ''}${r.clique_id ? ' | Clique: ' + r.clique_id : ''}${r.preview_url ? '\nPreview: ' + r.preview_url : ''}`;
+                    return `
+                    <div style="display: flex; align-items: center; padding: 10px; border-bottom: 1px solid #eee; gap: 10px; ${r.same_preview ? 'background: #fffbf5;' : ''} cursor: pointer;" onclick="searchFromHistory('${r.youtube_id}')" title="${tooltip}">
+                        <span style="color: #999; width: 25px;">${i + 1}.</span>
+                        <a href="${r.youtube_url}" target="_blank" onclick="event.stopPropagation();" title="Open in YouTube">
+                            <img src="https://img.youtube.com/vi/${r.youtube_id}/default.jpg"
+                                 style="width: 60px; height: 45px; object-fit: cover; border-radius: 4px; cursor: pointer;">
+                        </a>
+                        <div style="flex: 1;">
+                            <div>
+                                <span style="color: #1976D2; font-weight: 500;">${r.track || r.youtube_id}</span>
+                                ${categoryBadge}${similarityBadge}${samePreviewBadge}
+                            </div>
+                            <div style="font-size: 0.85em;">${metaLine}</div>
+                        </div>
+                    </div>
+                `}).join('');
+
+                results.innerHTML = resultsHtml;
+            } catch (err) {
+                status.innerHTML = `<span style="color: #e62117;">Error: ${err.message}</span>`;
+            }
+        }
+
+        // Mobile tooltip support - tap to show
+        document.getElementById('subtitle').addEventListener('click', (e) => {
+            if (e.target.hasAttribute('title')) {
+                document.querySelectorAll('.subtitle span[title]').forEach(el => {
+                    if (el !== e.target) el.classList.remove('show-tooltip');
+                });
+                e.target.classList.toggle('show-tooltip');
+            }
+        });
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.subtitle')) {
+                document.querySelectorAll('.subtitle span[title]').forEach(el => {
+                    el.classList.remove('show-tooltip');
+                });
+            }
+        });
+
+        // Load stats on page load and auto-refresh every 10 seconds
+        let lastStats = null;
+        let lastHealthStats = null;
+        async function loadStats() {
+            try {
+                const resp = await fetch('/api/health');
+                const data = await resp.json();
+                const statsDiv = document.getElementById('addsong-stats');
+                if (data.stats) {
+                    const s = data.stats;
+                    lastHealthStats = s;
+                    const model = s.model_name || 'VINet';
+                    const p1 = s.precision_at_1 !== undefined ? (s.precision_at_1 * 100).toFixed(1) + '%' : '?';
+                    const se = s.precision_at_1_se !== undefined ? '\u00b1' + (s.precision_at_1_se * 100).toFixed(1) + '%' : '';
+                    const hits = s.precision_at_1_hits || '?';
+                    const evalN = s.evaluable_songs || '?';
+                    const compTime = s.precision_at_1_time !== undefined ? s.precision_at_1_time.toFixed(2) + 's' : '?';
+                    const discogs = s.discogs_songs ? ` (${s.discogs_songs.toLocaleString()} from Discogs)` : '';
+                    let statsTooltip = `${s.unique_hashes.toLocaleString()} unique embeddings with ${model}. P@1: ${hits}/${evalN} hits in ${compTime}`;
+                    if (s.crawl_progress && s.crawl_progress.phase !== 'done') {
+                        const cp = s.crawl_progress;
+                        const etaStr = cp.rate_per_hour > 0 ? (cp.eta_hours < 1 ? Math.round(cp.eta_hours * 60) + 'm' : cp.eta_hours + 'h') : 'starting...';
+                        const phaseLabel = cp.phase === 'no_trackid' ? 'Re-crawling unverified' : cp.phase === 'dedup' ? 'Re-crawling duplicates' : 'Crawling new songs';
+                        statsTooltip += `\n${phaseLabel}: ${cp.processed}/${cp.total} processed` + (cp.rate_per_hour > 0 ? `, ${cp.rate_per_hour}/hr, ETA ${etaStr}` : ` (${etaStr})`);
+                        const queueParts = [];
+                        if (cp.no_tid_total) queueParts.push(`${cp.no_tid_total} unverified`);
+                        if (cp.dup_total) queueParts.push(`${cp.dup_total} duplicates`);
+                        if (cp.new_total) queueParts.push(`${cp.new_total} new songs`);
+                        if (queueParts.length) statsTooltip += `\nQueue: ${queueParts.join(' + ')}`;
+                    }
+                    let html = `<strong>Database:</strong> <span title="${statsTooltip}" style="cursor:help; border-bottom:1px dotted #666;">${s.total_songs.toLocaleString()} songs${discogs}</span>. <span title="${statsTooltip}" style="cursor:help; border-bottom:1px dotted #666;">Precision@1=${p1}${se}</span>`;
+                    if (s.dup_track_ids > 0) {
+                        const resolved = s.dup_track_ids_resolved || 0;
+                        // When crawl is in dedup phase, use crawl queue as unresolved for consistency
+                        const cp = s.crawl_progress;
+                        const unresolved = (cp && cp.phase === 'dedup' && cp.dup_total) ? cp.dup_total : (s.dup_track_ids - resolved);
+                        const total = resolved + unresolved;
+                        const dupTooltip = `${resolved} confirmed + ${unresolved} unresolved = ${total} total`;
+                        html += `. <span title="${dupTooltip}" style="color:#e65100; cursor:help; border-bottom:1px dotted #e65100;">${total.toLocaleString()} duplicate track_ids</span>`;
+                    }
+                    if (s.no_track_id > 0) {
+                        const noTidCount = (s.crawl_progress && s.crawl_progress.no_tid_total) ? s.crawl_progress.no_tid_total : s.no_track_id;
+                        html += `. <span title="${noTidCount.toLocaleString()} songs indexed before track_id saving was implemented" style="color:#f9a825; cursor:help; border-bottom:1px dotted #f9a825;">${noTidCount.toLocaleString()} unverified</span>`;
+                    }
+                    statsDiv.innerHTML = html;
+                } else if (data.embeddings_count) {
+                    statsDiv.innerHTML = `<strong>Database:</strong> ${data.embeddings_count.toLocaleString()} songs`;
+                }
+            } catch (e) {
+                document.getElementById('addsong-stats').innerHTML = '<strong>Database:</strong> Loading...';
+            }
+        }
+        loadStats();
+        setInterval(loadStats, 10000); // Auto-refresh stats every 10 seconds
+
+        // Search history management (server-side, persisted)
+        let searchHistoryCache = [];
+
+        async function loadSearchHistory() {
+            try {
+                const resp = await fetch('/api/history');
+                searchHistoryCache = await resp.json();
+                renderSearchHistory();
+            } catch (e) {
+                console.error('Failed to load history:', e);
+            }
+        }
+
+        async function addToSearchHistory(query) {
+            try {
+                await fetch('/api/history', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        youtube_id: query.youtube_id,
+                        artist: query.artist || lastYouTubeChannel || '',
+                        track: query.track || lastYouTubeTitle || ''
+                    })
+                });
+                await loadSearchHistory();
+            } catch (e) {
+                console.error('Failed to save history:', e);
+            }
+        }
+
+        function renderSearchHistory() {
+            const history = searchHistoryCache.slice(0, 3);
+            const container = document.getElementById('search-history');
+            const items = document.getElementById('history-items');
+            if (history.length === 0) {
+                container.style.display = 'none';
+                return;
+            }
+            container.style.display = 'block';
+            items.innerHTML = history.map(h => {
+                const label = h.track ? `${(h.artist || '').substring(0, 15)} - ${h.track.substring(0, 20)}` : (h.artist || h.youtube_id);
+                return `<a href="#" onclick="searchFromHistory('${h.youtube_id}'); return false;"
+                    style="color: #1976D2; text-decoration: none; margin-right: 12px; font-size: 0.85em;"
+                    title="${h.artist || ''} - ${h.track || ''}">${label}</a>`;
+            }).join('');
+        }
+
+        async function searchFromHistory(youtubeId) {
+            document.getElementById('youtube-url').value = `https://youtube.com/watch?v=${youtubeId}`;
+            lastSearchedId = youtubeId; // Prevent auto-search from triggering
+            await previewThumbnail();
+            searchCovers();
+        }
+
+        window.findSimilarFromPanel = async function() {
+            if (!selectedSongId) return;
+            // Switch to addsong mode
+            switchMode('addsong');
+            // Set URL and search
+            document.getElementById('youtube-url').value = `https://youtube.com/watch?v=${selectedSongId}`;
+            lastSearchedId = selectedSongId;
+            await previewThumbnail();
+            searchCovers();
+        };
+
+        loadSearchHistory();
+
+        renderSearchHistory();
+
+        loadData().then(() => {
+            // Preload covers data in background after initial load (for current dataset)
+            setTimeout(() => {
+                const cache = dataCache[currentDataset];
+                if (!cache.coversData) {
+                    fetch(getDataFile('covers_data.json')).then(r => r.ok ? r.json() : null).then(d => { if (d) cache.coversData = d; });
+                }
+                if (!cache.coverLinks) {
+                    fetch(getDataFile('cover_links.json')).then(r => r.ok ? r.json() : null).then(d => { if (d) cache.coverLinks = d; });
+                }
+                if (!cache.verifiedCovers) {
+                    fetch(getDataFile('verified_covers.json')).then(r => r.ok ? r.json() : null).then(d => { if (d) cache.verifiedCovers = d; });
+                }
+            }, 2000);
+        });
+    </script>
+</body>
+</html>

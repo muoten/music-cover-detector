@@ -1,0 +1,49 @@
+# Data files (too large for git)
+*.tsv
+*.csv
+!vectors.csv
+!vectors_vinet.csv
+!videos_to_test.csv
+!requirements.txt
+*.npz
+discogs-vinet-itunes/cover_map.json
+discogs-vinet-itunes/youtube_ids.txt
+discogs-coverhunter-itunes/youtube_ids.txt
+discogs-coverhunter-itunes/checkpoint/
+discogs-coverhunter-itunes/static/
+cookies.txt
+
+# Generated visualizations (except docs/ for GitHub Pages)
+*.html
+!docs/*.html
+!docs/*.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.env
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Reports / analysis
+report_dq_discogs/
+
+# Claude context
+.CONTEXT.md
