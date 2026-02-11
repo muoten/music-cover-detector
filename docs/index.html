@@ -1856,7 +1856,7 @@
                     }
                     if (s.no_track_id > 0) {
                         const noTidCount = (s.crawl_progress && s.crawl_progress.no_tid_total) ? s.crawl_progress.no_tid_total : s.no_track_id;
-                        html += `. <span title="${noTidCount.toLocaleString()} songs indexed before track_id saving was implemented" style="color:#f9a825; cursor:help; border-bottom:1px dotted #f9a825;">${noTidCount.toLocaleString()} unverified</span>`;
+                        html += `. <span title="${noTidCount.toLocaleString()} indexed songs with no iTunes match found (already attempted)" style="color:#f9a825; cursor:help; border-bottom:1px dotted #f9a825;">${noTidCount.toLocaleString()} unverified</span>`;
                     }
                     statsDiv.innerHTML = html;
                 } else if (data.embeddings_count) {
