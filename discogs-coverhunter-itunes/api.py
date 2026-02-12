@@ -909,23 +909,9 @@ def reload_database():
 
 @app.route('/api/cleanup-unverified', methods=['POST'])
 def cleanup_unverified():
-    """Remove indexed tracks that were re-crawled but still have no iTunes match."""
-    resolved_path = '/app/data/no_trackid_resolved.txt' if os.path.isdir('/app/data') else 'no_trackid_resolved.txt'
-    if not os.path.exists(resolved_path):
-        return jsonify({'status': 'ok', 'removed': 0, 'total_remaining': len(video_ids),
-                        'message': 'no_trackid_resolved.txt not found'})
-
-    # Load resolved set (tracks that were re-crawled in Phase 0)
-    resolved = set()
-    with open(resolved_path, 'r') as f:
-        for line in f:
-            vid = line.strip()
-            if vid:
-                resolved.add(vid)
-
-    # Find videos in DB that are in resolved set AND still have no track_id
+    """Remove all indexed tracks that have no iTunes match (no track_id)."""
     with db_lock:
-        to_remove = [vid for vid in video_ids if vid in resolved and vid not in track_ids]
+        to_remove = [vid for vid in video_ids if vid not in track_ids]
 
     if not to_remove:
         return jsonify({'status': 'ok', 'removed': 0, 'total_remaining': len(video_ids),
