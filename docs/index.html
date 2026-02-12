@@ -673,8 +673,8 @@
                 Loading database stats...
             </div>
 
-            <div class="mobile-note">
-                Use a desktop browser for better performance.
+            <div class="mobile-note" style="display: none;">
+                Use a desktop browser for better 3D rendering.
             </div>
 
             <div class="legend-info">
@@ -1062,6 +1062,7 @@
             document.querySelector('.plot-wrapper').style.display = isAddSongMode ? 'none' : 'block';
             document.getElementById('song-panel').style.display = isAddSongMode ? 'none' : '';
             document.getElementById('addsong-container').style.display = isAddSongMode ? 'block' : 'none';
+            document.querySelector('.mobile-note').style.display = isAddSongMode ? 'none' : '';
 
             if (isAddSongMode) {
                 document.getElementById('subtitle').textContent = 'Search by YouTube link or title/artist';
