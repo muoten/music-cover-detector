@@ -1846,14 +1846,8 @@
                     }
                     let html = `<strong>Database:</strong> <span title="${statsTooltip}" style="cursor:help; border-bottom:1px dotted #666;">${s.total_songs.toLocaleString()} songs${discogs}</span>. <span title="${statsTooltip}" style="cursor:help; border-bottom:1px dotted #666;">Precision@1=${p1}${se}</span>`;
                     if (s.dup_track_ids > 0) {
-                        const resolved = s.dup_track_ids_resolved || 0;
-                        // When crawl is in dedup phase, use crawl queue as unresolved for consistency
-                        const cp = s.crawl_progress;
-                        const unresolved = (cp && cp.phase === 'dedup' && cp.dup_total) ? cp.dup_total : (s.dup_track_ids - resolved);
-                        if (unresolved > 0) {
-                            const dupTooltip = `${unresolved} unresolved of ${s.dup_track_ids} total (${resolved} already confirmed)`;
-                            html += `. <span title="${dupTooltip}" style="color:#e65100; cursor:help; border-bottom:1px dotted #e65100;">${unresolved.toLocaleString()} duplicate track_ids</span>`;
-                        }
+                        const dupTooltip = `${s.dup_track_ids} songs share an iTunes track with another YouTube upload — both copies are kept`;
+                        html += `. <span title="${dupTooltip}" style="color:#757575; cursor:help; border-bottom:1px dotted #757575;">${s.dup_track_ids.toLocaleString()} shared track_ids</span>`;
                     }
                     if (s.no_track_id > 0) {
                         const noTidCount = (s.crawl_progress && s.crawl_progress.no_tid_total) ? s.crawl_progress.no_tid_total : s.no_track_id;
