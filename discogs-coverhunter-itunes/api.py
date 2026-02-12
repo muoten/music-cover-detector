@@ -146,7 +146,12 @@ def _run_data_regen():
         global regen_running
         regen_running = True
         try:
-            parent_dir = os.path.join(SCRIPT_DIR, '..')
+            # In Docker, update_data.py is at /app/, static files at /app/static/
+            # Locally, it's at the repo root with docs/ for output
+            if os.path.exists('/app/update_data.py'):
+                regen_dir = '/app'
+            else:
+                regen_dir = os.path.abspath(os.path.join(SCRIPT_DIR, '..'))
             persistent_path = '/app/data/vectors.csv'
             if os.path.exists(persistent_path):
                 vectors_path = persistent_path
@@ -158,10 +163,10 @@ def _run_data_regen():
                 '--skip-training',
                 '--skip-metadata',
             ]
-            logging.info(f"Running: {' '.join(cmd)} in {os.path.abspath(parent_dir)}")
+            logging.info(f"Running: {' '.join(cmd)} in {regen_dir}")
             proc = subprocess.run(
                 cmd,
-                cwd=os.path.abspath(parent_dir),
+                cwd=regen_dir,
                 capture_output=True,
                 text=True,
             )
@@ -919,6 +924,7 @@ def cleanup_unverified():
 
     removed = batch_remove_from_database(to_remove)
     _recompute_stats()
+    _run_data_regen()
 
     logging.info(f"Cleanup: removed {len(removed)} unverified tracks")
     return jsonify({

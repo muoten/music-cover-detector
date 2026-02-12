@@ -13,8 +13,11 @@ RUN pip install --no-cache-dir \
     flask \
     librosa \
     numpy \
+    pandas \
     pyyaml \
-    scipy
+    scikit-learn \
+    scipy \
+    tqdm
 
 WORKDIR /app
 
@@ -23,10 +26,12 @@ COPY discogs-coverhunter-itunes/api.py .
 COPY discogs-coverhunter-itunes/pipeline.py .
 COPY entrypoint.sh .
 COPY crawl_songs.py .
+COPY update_data.py .
 COPY discogs-coverhunter-itunes/model/ ./model/
 
-# Copy static files (web UI)
+# Copy static files (web UI) — symlink docs->static so update_data.py writes to the right place
 COPY docs/ ./static/
+RUN ln -s /app/static /app/docs
 
 # Copy data files (vectors.csv lives on persistent volume /app/data)
 COPY videos_to_test.csv .
