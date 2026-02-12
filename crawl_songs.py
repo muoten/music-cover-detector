@@ -79,6 +79,47 @@ def mark_attempted(progress_path, video_id):
         f.write(video_id + '\n')
 
 
+TRANSIENT_CATEGORIES = {'download_failed', 'processing_error'}
+
+
+def classify_error(message):
+    """Classify an API error message into a category."""
+    msg = message.lower()
+    if 'failed to get youtube title' in msg:
+        return 'video_unavailable'
+    if 'no itunes preview found' in msg:
+        return 'no_itunes_match'
+    if 'failed to download preview' in msg:
+        return 'download_failed'
+    if 'failed to convert to wav' in msg:
+        return 'processing_error'
+    return 'unknown'
+
+
+def load_errors_csv(path):
+    """Load errors.csv and return a set of video IDs with permanent errors."""
+    errors = set()
+    if not os.path.exists(path):
+        return errors
+    with open(path, 'r') as f:
+        reader = csv.reader(f)
+        next(reader, None)  # skip header
+        for row in reader:
+            if row:
+                errors.add(row[0])
+    return errors
+
+
+def record_error(path, video_id, category, detail):
+    """Append an error record to errors.csv."""
+    write_header = not os.path.exists(path)
+    with open(path, 'a', newline='') as f:
+        writer = csv.writer(f)
+        if write_header:
+            writer.writerow(['video_id', 'error_category', 'error_detail', 'timestamp'])
+        writer.writerow([video_id, category, detail, time.strftime('%Y-%m-%dT%H:%M:%S')])
+
+
 def load_videos_to_test(csv_path):
     """Load video IDs from videos_to_test.csv."""
     videos = []
@@ -231,7 +272,7 @@ def main():
 
     # Resolve file paths
     vectors_path = resolve_path('vectors.csv')
-    progress_path = resolve_path('crawl_progress.txt')
+    errors_csv_path = resolve_path('errors.csv')
 
     csv_paths = ['/app/videos_to_test.csv', './videos_to_test.csv']
     csv_path = None
@@ -248,9 +289,9 @@ def main():
     indexed = load_indexed_ids(vectors_path)
     logging.info(f"Indexed songs: {len(indexed)}")
 
-    logging.info(f"Loading progress from {progress_path}...")
-    attempted = load_progress(progress_path)
-    logging.info(f"Previously attempted: {len(attempted)}")
+    logging.info(f"Loading permanent errors from {errors_csv_path}...")
+    permanent_errors = load_errors_csv(errors_csv_path)
+    logging.info(f"Permanent errors (excluded): {len(permanent_errors)}")
 
     resolved_path = resolve_path('duplicates_resolved.txt')
     resolved = load_progress(resolved_path)
@@ -275,8 +316,8 @@ def main():
     if removed:
         logging.info(f"Previously removed (excluded): {len(removed)}")
 
-    # Build work queue: skip indexed, already-attempted, and removed
-    skip = indexed | attempted | removed
+    # Build work queue: skip indexed, permanent errors, and removed
+    skip = indexed | permanent_errors | removed
     queue = [vid for vid in all_videos if vid not in skip]
 
     # Build no-trackid re-crawl queue (indexed songs with no track_id mapping)
@@ -411,17 +452,11 @@ def main():
     stats = {'added': 0, 'skipped': 0, 'errors': 0, 'transient_errors': 0}
 
     for i, video_id in enumerate(queue):
-        # Re-check in case the API added it during a previous call's async processing
-        if video_id in attempted:
-            continue
-
         retries = 0
         while retries <= args.max_retries:
             success, is_transient, message = call_search_api(args.api, video_id)
 
             if success:
-                mark_attempted(progress_path, video_id)
-                attempted.add(video_id)
                 stats['added'] += 1
                 logging.info(f"[{i+1}/{len(queue)}] {video_id}: {message}")
                 break
@@ -435,7 +470,7 @@ def main():
                     )
                     time.sleep(wait)
                 else:
-                    # Exhausted retries — don't mark as attempted so we retry next run
+                    # Exhausted retries — don't record, will retry next run
                     stats['transient_errors'] += 1
                     logging.error(
                         f"[{i+1}/{len(queue)}] {video_id}: giving up after "
@@ -443,11 +478,17 @@ def main():
                     )
                     break
             else:
-                # Permanent failure — mark as attempted
-                mark_attempted(progress_path, video_id)
-                attempted.add(video_id)
-                stats['skipped'] += 1
-                logging.info(f"[{i+1}/{len(queue)}] {video_id}: skipped — {message}")
+                # Permanent failure — classify and record
+                category = classify_error(message)
+                if category in TRANSIENT_CATEGORIES:
+                    # Potentially transient, retry next run
+                    stats['transient_errors'] += 1
+                    logging.info(f"[{i+1}/{len(queue)}] {video_id}: {category} (will retry) — {message}")
+                else:
+                    record_error(errors_csv_path, video_id, category, message)
+                    permanent_errors.add(video_id)
+                    stats['skipped'] += 1
+                    logging.info(f"[{i+1}/{len(queue)}] {video_id}: {category} — {message}")
                 break
 
         # Periodic stats
