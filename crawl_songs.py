@@ -458,6 +458,8 @@ def main():
 
             if success:
                 stats['added'] += 1
+                # Fresh iTunes match — mark as resolved to avoid needless Phase 1 re-crawl
+                mark_attempted(resolved_path, video_id)
                 logging.info(f"[{i+1}/{len(queue)}] {video_id}: {message}")
                 break
             elif is_transient:
