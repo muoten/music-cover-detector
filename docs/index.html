@@ -1836,12 +1836,7 @@
                         const cp = s.crawl_progress;
                         const etaStr = cp.rate_per_hour > 0 ? (cp.eta_hours < 1 ? Math.round(cp.eta_hours * 60) + 'm' : cp.eta_hours + 'h') : 'starting...';
                         const phaseLabel = cp.phase === 'no_trackid' ? 'Re-crawling unverified' : cp.phase === 'dedup' ? 'Re-crawling duplicates' : 'Crawling new songs';
-                        statsTooltip += `\n${phaseLabel}: ${cp.processed}/${cp.total} processed` + (cp.rate_per_hour > 0 ? `, ${cp.rate_per_hour}/hr, ETA ${etaStr}` : ` (${etaStr})`);
-                        const queueParts = [];
-                        if (cp.no_tid_total) queueParts.push(`${cp.no_tid_total} unverified`);
-                        if (cp.dup_total) queueParts.push(`${cp.dup_total} duplicates`);
-                        if (cp.new_total) queueParts.push(`${cp.new_total} new songs`);
-                        if (queueParts.length) statsTooltip += `\nQueue: ${queueParts.join(' + ')}`;
+                        statsTooltip += `\n${phaseLabel}: ${cp.remaining} remaining` + (cp.rate_per_hour > 0 ? `, ${cp.rate_per_hour}/hr, ETA ${etaStr}` : ` (${etaStr})`);
                     }
                     let html = `<strong>Database:</strong> <span title="${statsTooltip}" style="cursor:help; border-bottom:1px dotted #666;">${s.total_songs.toLocaleString()} songs${discogs}</span>. <span title="${statsTooltip}" style="cursor:help; border-bottom:1px dotted #666;">Precision@1=${p1}${se}</span>`;
                     if (s.dup_track_ids > 0) {
