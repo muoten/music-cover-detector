@@ -539,6 +539,47 @@ def remove_from_database(youtube_id):
     logging.info(f"Removed {youtube_id} from database ({len(video_ids)} songs remaining)")
 
 
+def batch_remove_from_database(ids_to_remove):
+    """Remove multiple songs from the in-memory database in one batch."""
+    global embeddings_matrix, _dup_cache_dirty
+
+    removed = []
+    with db_lock:
+        indices_to_delete = []
+        for vid in ids_to_remove:
+            if vid in video_ids:
+                indices_to_delete.append(video_ids.index(vid))
+                removed.append(vid)
+
+        if not indices_to_delete:
+            return removed
+
+        # Delete from numpy array in one call
+        embeddings_matrix = np.delete(embeddings_matrix, indices_to_delete, axis=0)
+
+        # Remove from lists/dicts in reverse index order to preserve indices
+        for idx in sorted(indices_to_delete, reverse=True):
+            video_ids.pop(idx)
+
+        for vid in removed:
+            embedding_hashes.pop(vid, None)
+            if vid in track_ids:
+                track_ids.pop(vid)
+                _dup_cache_dirty = True
+
+    # Persist removals to disk
+    removed_path = '/app/data/removed.txt' if os.path.isdir('/app/data') else 'removed.txt'
+    try:
+        with open(removed_path, 'a') as f:
+            for vid in removed:
+                f.write(vid + '\n')
+    except Exception as e:
+        logging.error(f"Failed to persist batch removal: {e}")
+
+    logging.info(f"Batch removed {len(removed)} songs from database ({len(video_ids)} remaining)")
+    return removed
+
+
 def add_embedding_to_database(youtube_id, embedding, track_id=None):
     """
     Add a new embedding to the in-memory database and persistent storage.
@@ -864,6 +905,41 @@ def reload_database():
         })
     except Exception as e:
         return jsonify({'status': 'error', 'error': str(e)}), 500
+
+
+@app.route('/api/cleanup-unverified', methods=['POST'])
+def cleanup_unverified():
+    """Remove indexed tracks that were re-crawled but still have no iTunes match."""
+    resolved_path = '/app/data/no_trackid_resolved.txt' if os.path.isdir('/app/data') else 'no_trackid_resolved.txt'
+    if not os.path.exists(resolved_path):
+        return jsonify({'status': 'ok', 'removed': 0, 'total_remaining': len(video_ids),
+                        'message': 'no_trackid_resolved.txt not found'})
+
+    # Load resolved set (tracks that were re-crawled in Phase 0)
+    resolved = set()
+    with open(resolved_path, 'r') as f:
+        for line in f:
+            vid = line.strip()
+            if vid:
+                resolved.add(vid)
+
+    # Find videos in DB that are in resolved set AND still have no track_id
+    with db_lock:
+        to_remove = [vid for vid in video_ids if vid in resolved and vid not in track_ids]
+
+    if not to_remove:
+        return jsonify({'status': 'ok', 'removed': 0, 'total_remaining': len(video_ids),
+                        'message': 'no unverified tracks to remove'})
+
+    removed = batch_remove_from_database(to_remove)
+    _recompute_stats()
+
+    logging.info(f"Cleanup: removed {len(removed)} unverified tracks")
+    return jsonify({
+        'status': 'ok',
+        'removed': len(removed),
+        'total_remaining': len(video_ids),
+    })
 
 
 @app.route('/api/regen-status')

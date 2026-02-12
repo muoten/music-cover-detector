@@ -201,6 +201,24 @@ def call_search_api(api_url, video_id, force=False):
         return False, True, f'Unexpected error: {e}'
 
 
+def call_cleanup_api(api_url):
+    """POST to /api/cleanup-unverified to remove tracks with no iTunes match."""
+    try:
+        req = urllib.request.Request(
+            f"{api_url.rstrip('/')}/api/cleanup-unverified",
+            data=b'{}', headers={'Content-Type': 'application/json'},
+            method='POST',
+        )
+        resp = urllib.request.urlopen(req, timeout=60)
+        result = json.loads(resp.read().decode('utf-8'))
+        logging.info(f"Cleanup API: removed {result.get('removed', '?')} unverified, "
+                     f"{result.get('total_remaining', '?')} remaining")
+        return result
+    except Exception as e:
+        logging.error(f"Cleanup API call failed: {e}")
+        return None
+
+
 def main():
     parser = argparse.ArgumentParser(description='Crawl unindexed songs')
     parser.add_argument('--api', default='https://coverdetector.com',
@@ -251,17 +269,23 @@ def main():
     all_track_ids, duplicate_vids = load_track_ids()
     logging.info(f"Songs with duplicate track_ids: {len(duplicate_vids)}")
 
-    # Build work queue: skip indexed and already-attempted
-    skip = indexed | attempted
+    # Load removed IDs to exclude from all queues
+    removed_path = resolve_path('removed.txt')
+    removed = load_progress(removed_path)
+    if removed:
+        logging.info(f"Previously removed (excluded): {len(removed)}")
+
+    # Build work queue: skip indexed, already-attempted, and removed
+    skip = indexed | attempted | removed
     queue = [vid for vid in all_videos if vid not in skip]
 
     # Build no-trackid re-crawl queue (indexed songs with no track_id mapping)
     track_id_keys = set(all_track_ids.keys())
-    no_trackid_queue = [vid for vid in all_videos if vid in indexed and vid not in track_id_keys and vid not in no_trackid_resolved]
+    no_trackid_queue = [vid for vid in all_videos if vid in indexed and vid not in track_id_keys and vid not in no_trackid_resolved and vid not in removed]
     logging.info(f"Songs with no track_id: {len(no_trackid_queue)}")
 
     # Build duplicate re-crawl queue (indexed songs with duplicate track_ids, skip already resolved)
-    duplicate_queue = [vid for vid in all_videos if vid in duplicate_vids and vid in indexed and vid not in resolved]
+    duplicate_queue = [vid for vid in all_videos if vid in duplicate_vids and vid in indexed and vid not in resolved and vid not in removed]
     logging.info(f"Songs to process: {len(no_trackid_queue)} unverified + {len(duplicate_queue)} duplicates + {len(queue)} new")
 
     if not queue and not duplicate_queue and not no_trackid_queue:
@@ -326,6 +350,10 @@ def main():
             f"=== No-trackid re-crawl done: {ntid_stats['updated']} updated | "
             f"{ntid_stats['errors']} errors ==="
         )
+
+        # Remove tracks that still have no iTunes match after re-crawl
+        logging.info("Cleaning up unverified tracks...")
+        call_cleanup_api(args.api)
 
     # Phase 1: Re-crawl duplicates with force=True (first, so we can trace results quickly)
     if duplicate_queue:
