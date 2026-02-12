@@ -351,9 +351,9 @@ def main():
             f"{ntid_stats['errors']} errors ==="
         )
 
-        # Remove tracks that still have no iTunes match after re-crawl
-        logging.info("Cleaning up unverified tracks...")
-        call_cleanup_api(args.api)
+    # Remove tracks that still have no iTunes match after re-crawl
+    logging.info("Cleaning up unverified tracks...")
+    call_cleanup_api(args.api)
 
     # Phase 1: Re-crawl duplicates with force=True (first, so we can trace results quickly)
     if duplicate_queue:
