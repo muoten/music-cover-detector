@@ -274,7 +274,7 @@ def main():
     vectors_path = resolve_path('vectors.csv')
     errors_csv_path = resolve_path('errors.csv')
 
-    csv_paths = ['/app/videos_to_test.csv', './videos_to_test.csv']
+    csv_paths = ['/app/data/videos_to_test.csv', '/app/videos_to_test.csv', './videos_to_test.csv']
     csv_path = None
     for p in csv_paths:
         if os.path.exists(p):
