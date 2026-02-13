@@ -17,7 +17,8 @@ RUN pip install --no-cache-dir \
     pyyaml \
     scikit-learn \
     scipy \
-    tqdm
+    tqdm \
+    umap-learn
 
 WORKDIR /app
 

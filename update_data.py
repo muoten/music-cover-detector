@@ -46,7 +46,9 @@ VIDEOS_TO_TEST_URL = (
     'https://raw.githubusercontent.com/muoten/yt-CoverHunter/main/data/videos_to_test.csv'
 )
 
-METADATA_CACHE_PATH = os.path.join(SCRIPT_DIR, 'metadata_cache.csv')
+# Store metadata cache on persistent volume if available
+_persistent_cache = '/app/data/metadata_cache.csv'
+METADATA_CACHE_PATH = _persistent_cache if os.path.isdir('/app/data') else os.path.join(SCRIPT_DIR, 'metadata_cache.csv')
 METADATA_COLUMNS = [
     'youtube_id', 'title', 'channel', 'uploader',
     'view_count', 'like_count', 'duration', 'upload_date', 'channel_id'
@@ -105,13 +107,22 @@ def download_ground_truth():
 # Step 1: Parse vectors & fetch metadata
 # ============================================================================
 
-def parse_vectors_csv(vectors_path):
+def parse_vectors_csv(vectors_path, removed_path=None):
     """Parse the raw vectors.csv into youtube_ids and embedding arrays.
 
     The CSV has columns: youtube_id, embeddings
     where embeddings is a string like '\"[ 0.123 -0.456 ... ]\"'
     """
     print(f'Parsing {vectors_path}...')
+
+    # Load removed IDs to exclude
+    removed_ids = set()
+    if removed_path and os.path.exists(removed_path):
+        with open(removed_path, 'r') as f:
+            removed_ids = {line.strip() for line in f if line.strip()}
+        if removed_ids:
+            print(f'  Excluding {len(removed_ids)} removed videos')
+
     youtube_ids = []
     embeddings = []
     skipped = 0
@@ -130,6 +141,9 @@ def parse_vectors_csv(vectors_path):
             # Extract YouTube ID from paths like /tmp/.../ABC123.wav
             if '/' in vid:
                 vid = vid.rsplit('/', 1)[-1].replace('.wav', '')
+            if vid in removed_ids:
+                skipped += 1
+                continue
             emb_str = row[1].strip().strip('"')
             # Parse "[ 0.123 -0.456 ... ]" -> list of floats
             emb_str = emb_str.strip('[]')
@@ -182,35 +196,24 @@ def save_metadata_cache(cache):
     print(f'  Saved {len(rows)} entries to metadata cache')
 
 
-def fetch_metadata_ytdlp(video_id):
-    """Fetch metadata for a single video using yt-dlp."""
-    url = f'https://youtube.com/watch?v={video_id}'
+def fetch_metadata_noembed(video_id):
+    """Fetch metadata for a single video using noembed API."""
+    import urllib.request, json as _json
+    url = f'https://noembed.com/embed?url=https://www.youtube.com/watch?v={video_id}'
     try:
-        result = subprocess.run(
-            [
-                'yt-dlp', '--skip-download',
-                '--print', '%(id)s\t%(title)s\t%(channel)s\t%(uploader)s\t%(view_count)s\t%(like_count)s\t%(duration)s\t%(upload_date)s\t%(channel_id)s',
-                url,
-            ],
-            capture_output=True, text=True, timeout=30,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            parts = result.stdout.strip().split('\t')
-            if len(parts) >= 9:
-                return {
-                    'youtube_id': parts[0],
-                    'title': parts[1] if parts[1] != 'NA' else '',
-                    'channel': parts[2] if parts[2] != 'NA' else '',
-                    'uploader': parts[3] if parts[3] != 'NA' else '',
-                    'view_count': parts[4] if parts[4] != 'NA' else '0',
-                    'like_count': parts[5] if parts[5] != 'NA' else '0',
-                    'duration': parts[6] if parts[6] != 'NA' else '0',
-                    'upload_date': parts[7] if parts[7] != 'NA' else '',
-                    'channel_id': parts[8] if parts[8] != 'NA' else '',
-                }
-    except (subprocess.TimeoutExpired, FileNotFoundError):
+        resp = _json.loads(urllib.request.urlopen(url, timeout=10).read())
+        title = resp.get('title', '')
+        author = resp.get('author_name', '')
+        return {
+            'youtube_id': video_id,
+            'title': title,
+            'channel': author,
+            'uploader': author,
+            'view_count': '0', 'like_count': '0', 'duration': '0',
+            'upload_date': '', 'channel_id': '',
+        }
+    except Exception:
         pass
-    # Return placeholder on failure
     return {
         'youtube_id': video_id,
         'title': '', 'channel': '', 'uploader': '',
@@ -222,7 +225,8 @@ def fetch_metadata_ytdlp(video_id):
 def fetch_all_metadata(youtube_ids, skip_fetch=False):
     """Fetch metadata for all videos, using cache for known ones."""
     cache = load_metadata_cache()
-    new_ids = [vid for vid in youtube_ids if vid not in cache]
+    # Re-fetch entries with empty titles (failed previous fetches)
+    new_ids = [vid for vid in youtube_ids if vid not in cache or not cache[vid].get('title')]
 
     if skip_fetch:
         print(f'  --skip-metadata: skipping yt-dlp fetch for {len(new_ids)} new IDs')
@@ -234,12 +238,18 @@ def fetch_all_metadata(youtube_ids, skip_fetch=False):
                 'upload_date': '', 'channel_id': '',
             }
     elif new_ids:
-        print(f'  Fetching metadata for {len(new_ids)} new videos...')
-        for i, vid in enumerate(tqdm(new_ids, desc='  Fetching metadata')):
-            cache[vid] = fetch_metadata_ytdlp(vid)
-            # Rate limit: 1s pause every 50 fetches
-            if (i + 1) % 50 == 0:
-                time.sleep(1)
+        print(f'  Fetching metadata for {len(new_ids)} new videos (parallel)...')
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        with ThreadPoolExecutor(max_workers=20) as pool:
+            futures = {pool.submit(fetch_metadata_noembed, vid): vid for vid in new_ids}
+            done = 0
+            for future in as_completed(futures):
+                vid = futures[future]
+                cache[vid] = future.result()
+                done += 1
+                if done % 500 == 0:
+                    print(f'  {done}/{len(new_ids)} fetched')
+        print(f'  {done}/{len(new_ids)} fetched')
 
     save_metadata_cache(cache)
 
@@ -281,7 +291,9 @@ def write_step1_outputs(youtube_ids, embeddings, metadata_rows):
 
 def run_clustering(embeddings, n_clusters=25):
     """K-means clustering on embeddings."""
+    from sklearn.preprocessing import normalize
     print(f'Running K-means clustering (k={n_clusters})...')
+    embeddings = normalize(embeddings, norm='l2')
     scaler = StandardScaler()
     embeddings_scaled = scaler.fit_transform(embeddings)
 
@@ -309,7 +321,10 @@ def write_clustered_songs(metadata_path, labels):
 def run_umap(embeddings):
     """UMAP 3D projection."""
     from umap import UMAP
+    from sklearn.preprocessing import normalize
     print('Running UMAP 3D projection (n_neighbors=30, min_dist=0.1, metric=cosine)...')
+    # L2 normalize to ensure consistent scale across old/new embeddings
+    embeddings = normalize(embeddings, norm='l2')
     scaler = StandardScaler()
     embeddings_scaled = scaler.fit_transform(embeddings)
     reducer = UMAP(
@@ -556,7 +571,10 @@ def main():
     print('\n' + '=' * 60)
     print('STEP 1: Parse vectors & fetch metadata')
     print('=' * 60)
-    youtube_ids, embeddings = parse_vectors_csv(args.vectors)
+    # Determine removed.txt path (next to vectors.csv or in /app/data)
+    vectors_dir = os.path.dirname(os.path.abspath(args.vectors))
+    removed_path = os.path.join(vectors_dir, 'removed.txt')
+    youtube_ids, embeddings = parse_vectors_csv(args.vectors, removed_path=removed_path)
     metadata_rows = fetch_all_metadata(youtube_ids, skip_fetch=args.skip_metadata)
     vectors_path, metadata_path = write_step1_outputs(youtube_ids, embeddings, metadata_rows)
     n_new_songs = len(youtube_ids) - old_count if old_count > 0 else len(youtube_ids)

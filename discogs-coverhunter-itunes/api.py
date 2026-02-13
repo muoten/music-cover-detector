@@ -130,7 +130,7 @@ def _log_user_search(youtube_id, title):
         logging.error(f"Failed to log user search: {e}")
 
 
-REGEN_INTERVAL = 50  # regenerate data.json every N new songs
+REGEN_INTERVAL = 500  # regenerate data.json every N new songs
 
 
 def check_data_regen():
