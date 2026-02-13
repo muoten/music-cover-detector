@@ -1830,7 +1830,7 @@
                     const hits = s.precision_at_1_hits || '?';
                     const evalN = s.evaluable_songs || '?';
                     const compTime = s.precision_at_1_time !== undefined ? s.precision_at_1_time.toFixed(2) + 's' : '?';
-                    const discogs = s.discogs_songs ? ` (${s.discogs_songs.toLocaleString()} from Discogs)` : '';
+                    const discogs = s.discogs_songs ? ` (${s.discogs_songs.toLocaleString()} from Discogs, ${(s.user_searches || 0).toLocaleString()} user searches)` : '';
                     let statsTooltip = `${s.unique_hashes.toLocaleString()} unique embeddings with ${model}. P@1: ${hits}/${evalN} hits in ${compTime}`;
                     if (s.crawl_progress && s.crawl_progress.phase !== 'done') {
                         const cp = s.crawl_progress;

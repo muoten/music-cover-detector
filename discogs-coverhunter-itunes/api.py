@@ -88,6 +88,7 @@ def load_clique_map():
     global clique_map
 
     csv_paths = [
+        '/app/data/videos_to_test.csv',
         os.path.join(SCRIPT_DIR, '..', 'videos_to_test.csv'),
         os.path.join(SCRIPT_DIR, 'videos_to_test.csv'),
         '/code/videos_to_test.csv',
@@ -113,6 +114,20 @@ def load_clique_map():
             return
 
     logging.info("No clique map found")
+
+
+def _log_user_search(youtube_id, title):
+    """Log a non-Discogs user search to user_searches.csv."""
+    path = '/app/data/user_searches.csv' if os.path.isdir('/app/data') else 'user_searches.csv'
+    write_header = not os.path.exists(path)
+    try:
+        with open(path, 'a') as f:
+            if write_header:
+                f.write('video_id,title,clique,timestamp\n')
+            safe_title = title.replace(',', ' ')
+            f.write(f'{youtube_id},{safe_title},,{time.strftime("%Y-%m-%dT%H:%M:%S")}\n')
+    except Exception as e:
+        logging.error(f"Failed to log user search: {e}")
 
 
 REGEN_INTERVAL = 50  # regenerate data.json every N new songs
@@ -492,6 +507,7 @@ def _recompute_stats():
     db_stats.update({
         'total_songs': total,
         'discogs_songs': discogs,
+        'user_searches': total - discogs,
         'unique_hashes': unique,
         'songs_with_collisions': collisions,
         'collision_ratio': ratio,
@@ -825,6 +841,10 @@ def api_search():
 
         # Async add to database for future searches
         async_add_embedding(youtube_id, embedding.copy(), query_track_id)
+
+        # Track non-Discogs searches
+        if youtube_id not in clique_map:
+            _log_user_search(youtube_id, title)
 
     # Get iTunes info for display — use stored track_id first, fall back to search
     itunes_artist, itunes_track, preview_url = '', '', ''
