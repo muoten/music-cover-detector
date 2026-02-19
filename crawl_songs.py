@@ -263,6 +263,64 @@ def call_cleanup_api(api_url):
         return None
 
 
+def run_dedup_phase(duplicate_queue, args, resolved_path, start_time, last_report_time,
+                    total_work, no_tid_count, new_count, phase_label="Phase 1"):
+    """Run a dedup pass: re-crawl songs with duplicate track_ids using force=True."""
+    if not duplicate_queue:
+        return last_report_time
+
+    logging.info(f"=== {phase_label}: Re-crawling {len(duplicate_queue)} songs with duplicate track_ids ===")
+    dup_stats = {'updated': 0, 'errors': 0}
+
+    for i, video_id in enumerate(duplicate_queue):
+        retries = 0
+        while retries <= args.max_retries:
+            success, is_transient, message = call_search_api(args.api, video_id, force=True)
+
+            if success:
+                dup_stats['updated'] += 1
+                mark_attempted(resolved_path, video_id)
+                logging.info(f"[dup {i+1}/{len(duplicate_queue)}] {video_id}: {message}")
+                break
+            elif is_transient:
+                retries += 1
+                if retries <= args.max_retries:
+                    wait = max(args.delay, 5) * (2 ** (retries - 1))
+                    logging.warning(
+                        f"[dup {i+1}/{len(duplicate_queue)}] {video_id}: transient error "
+                        f"(retry {retries}/{args.max_retries} in {wait:.0f}s): {message}"
+                    )
+                    time.sleep(wait)
+                else:
+                    dup_stats['errors'] += 1
+                    logging.error(
+                        f"[dup {i+1}/{len(duplicate_queue)}] {video_id}: giving up: {message}"
+                    )
+                    break
+            else:
+                dup_stats['errors'] += 1
+                logging.info(f"[dup {i+1}/{len(duplicate_queue)}] {video_id}: failed — {message}")
+                break
+
+        now = time.time()
+        if now - last_report_time >= 20:
+            dup_processed = dup_stats['updated'] + dup_stats['errors']
+            elapsed = now - start_time
+            rate = dup_processed / elapsed * 3600 if elapsed > 0 else 0
+            remaining = len(duplicate_queue) - (i + 1)
+            eta_hours = remaining / rate if rate > 0 else 0
+            report_progress(args.api, 'dedup', no_tid_count + dup_processed, total_work, rate, eta_hours, remaining,
+                            dup_total=len(duplicate_queue), new_total=new_count, no_tid_total=no_tid_count)
+            last_report_time = now
+        time.sleep(args.delay)
+
+    logging.info(
+        f"=== {phase_label} done: {dup_stats['updated']} updated | "
+        f"{dup_stats['errors']} errors ==="
+    )
+    return last_report_time
+
+
 def main():
     parser = argparse.ArgumentParser(description='Crawl unindexed songs')
     parser.add_argument('--api', default='https://coverdetector.com',
@@ -400,56 +458,10 @@ def main():
     call_cleanup_api(args.api)
 
     # Phase 1: Re-crawl duplicates with force=True (first, so we can trace results quickly)
-    if duplicate_queue:
-        logging.info(f"=== Phase 1: Re-crawling {len(duplicate_queue)} songs with duplicate track_ids ===")
-        dup_stats = {'updated': 0, 'unchanged': 0, 'errors': 0}
-
-        for i, video_id in enumerate(duplicate_queue):
-            retries = 0
-            while retries <= args.max_retries:
-                success, is_transient, message = call_search_api(args.api, video_id, force=True)
-
-                if success:
-                    dup_stats['updated'] += 1
-                    mark_attempted(resolved_path, video_id)
-                    logging.info(f"[dup {i+1}/{len(duplicate_queue)}] {video_id}: {message}")
-                    break
-                elif is_transient:
-                    retries += 1
-                    if retries <= args.max_retries:
-                        wait = max(args.delay, 5) * (2 ** (retries - 1))
-                        logging.warning(
-                            f"[dup {i+1}/{len(duplicate_queue)}] {video_id}: transient error "
-                            f"(retry {retries}/{args.max_retries} in {wait:.0f}s): {message}"
-                        )
-                        time.sleep(wait)
-                    else:
-                        dup_stats['errors'] += 1
-                        logging.error(
-                            f"[dup {i+1}/{len(duplicate_queue)}] {video_id}: giving up: {message}"
-                        )
-                        break
-                else:
-                    dup_stats['errors'] += 1
-                    logging.info(f"[dup {i+1}/{len(duplicate_queue)}] {video_id}: failed — {message}")
-                    break
-
-            now = time.time()
-            if now - last_report_time >= 20:
-                dup_processed = dup_stats['updated'] + dup_stats['errors']
-                elapsed = now - start_time
-                rate = dup_processed / elapsed * 3600 if elapsed > 0 else 0
-                remaining = len(duplicate_queue) - (i + 1) + len(queue)
-                eta_hours = remaining / rate if rate > 0 else 0
-                report_progress(args.api, 'dedup', len(no_trackid_queue) + dup_processed, total_work, rate, eta_hours, remaining,
-                                dup_total=len(duplicate_queue), new_total=len(queue), no_tid_total=len(no_trackid_queue))
-                last_report_time = now
-            time.sleep(args.delay)
-
-        logging.info(
-            f"=== Duplicate re-crawl done: {dup_stats['updated']} updated | "
-            f"{dup_stats['errors']} errors ==="
-        )
+    last_report_time = run_dedup_phase(
+        duplicate_queue, args, resolved_path, start_time, last_report_time,
+        total_work, len(no_trackid_queue), len(queue), phase_label="Phase 1",
+    )
 
     # Phase 2: Crawl new songs
     stats = {'added': 0, 'skipped': 0, 'errors': 0, 'transient_errors': 0}
@@ -525,7 +537,7 @@ def main():
 
         time.sleep(adaptive_delay)
 
-    # Final stats
+    # Final stats for Phase 2
     elapsed = time.time() - start_time
     total = stats['added'] + stats['skipped'] + stats['transient_errors']
     logging.info(
@@ -533,6 +545,23 @@ def main():
         f"{total} new processed | {stats['added']} added | "
         f"{stats['skipped']} skipped | {stats['transient_errors']} transient errors"
     )
+
+    # Phase 3: Dedup pass — re-crawl duplicates created during Phase 2
+    logging.info("Reloading track_ids to find new duplicates...")
+    resolved = load_progress(resolved_path)
+    _, new_duplicate_vids = load_track_ids()
+    indexed = load_indexed_ids(vectors_path)
+    dedup_queue = [vid for vid in all_videos if vid in new_duplicate_vids and vid in indexed
+                   and vid not in resolved and vid not in removed]
+    if dedup_queue:
+        logging.info(f"Found {len(dedup_queue)} new duplicates after Phase 2")
+        run_dedup_phase(
+            dedup_queue, args, resolved_path, start_time, last_report_time,
+            total_work, len(no_trackid_queue), len(queue), phase_label="Phase 3 (post-crawl dedup)",
+        )
+    else:
+        logging.info("No new duplicates after Phase 2")
+
     report_progress(args.api, 'done', total_work, total_work,
                     dup_total=len(duplicate_queue), new_total=len(queue), no_tid_total=len(no_trackid_queue))
 

@@ -177,7 +177,6 @@ def _run_data_regen():
                 sys.executable, 'update_data.py',
                 '--vectors', os.path.abspath(vectors_path),
                 '--skip-training',
-                '--skip-metadata',
             ]
             logging.info(f"Running: {' '.join(cmd)} in {regen_dir}")
             proc = subprocess.run(
