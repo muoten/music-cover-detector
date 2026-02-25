@@ -534,6 +534,32 @@ def _recompute_stats():
                 pass
             break
 
+    # Count pipeline-level stats from data files
+    source_path = '/app/data/videos_to_test.csv' if os.path.isdir('/app/data') else 'videos_to_test.csv'
+    errors_path = '/app/data/errors.csv' if os.path.isdir('/app/data') else 'errors.csv'
+    removed_path2 = '/app/data/removed.txt' if os.path.isdir('/app/data') else 'removed.txt'
+    tried = 0
+    no_itunes = 0
+    removed_count = 0
+    try:
+        with open(source_path, 'r') as f:
+            tried = sum(1 for _ in f) - 1  # minus header
+    except Exception:
+        pass
+    try:
+        with open(errors_path, 'r') as f:
+            for line in f:
+                reason = line.split(',', 1)[1].lower() if ',' in line else ''
+                if 'no itunes' in reason or 'no preview' in reason:
+                    no_itunes += 1
+    except Exception:
+        pass
+    try:
+        with open(removed_path2, 'r') as f:
+            removed_count = sum(1 for line in f if line.strip())
+    except Exception:
+        pass
+
     db_stats.update({
         'total_songs': total,
         'discogs_songs': discogs,
@@ -545,6 +571,9 @@ def _recompute_stats():
         'dup_track_ids_resolved': dup_resolved,
         'no_track_id': no_track_id,
         'evaluable_songs': evaluable,
+        'tried': tried,
+        'no_itunes_match': no_itunes,
+        'removed_duplicates': removed_count,
     })
 
     # Remove stale crawl progress (no update for 5 minutes)

@@ -1832,7 +1832,13 @@
                     const compTime = s.precision_at_1_time !== undefined ? s.precision_at_1_time.toFixed(2) + 's' : '?';
                     const discogs = s.discogs_songs ? ` (${s.discogs_songs.toLocaleString()} from Discogs, ${(s.user_searches || 0).toLocaleString()} user searches)` : '';
                     const collisions = s.total_songs - s.unique_hashes;
-                    const songsTooltip = `${s.unique_hashes.toLocaleString()} unique embeddings + ${collisions.toLocaleString()} collisions (${model})`;
+                    const tried = s.tried || 0;
+                    const noItunes = s.no_itunes_match || 0;
+                    const removedDups = s.removed_duplicates || 0;
+                    let songsTooltip = `Tried: ${tried.toLocaleString()} songs`;
+                    songsTooltip += `\nNo iTunes match: ${noItunes.toLocaleString()}`;
+                    songsTooltip += `\nDuplicated song (re-uploads removed): ${removedDups.toLocaleString()}`;
+                    songsTooltip += `\nIndexed: ${s.total_songs.toLocaleString()} (${model})`;
                     let p1Tooltip = `P@1: ${hits}/${evalN} hits in ${compTime}\n${evalN.toLocaleString()} of ${s.total_songs.toLocaleString()} songs are evaluable (have both clique + iTunes track ID)`;
                     if (s.crawl_progress && s.crawl_progress.phase !== 'done') {
                         const cp = s.crawl_progress;
