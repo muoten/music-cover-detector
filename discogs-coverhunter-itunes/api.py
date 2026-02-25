@@ -310,12 +310,18 @@ def load_database():
         track_ids.update(progress.get('track_ids', {}))
         logging.info(f"Loaded {len(track_ids)} trackId mappings from progress.json")
 
-    # Also load track_ids_new.json (runtime additions from crawl/API)
+    # One-time migration: merge track_ids_new.json into track_ids.json
     new_tid_path = '/app/data/track_ids_new.json' if os.path.exists('/app/data') else os.path.join(SCRIPT_DIR, 'track_ids_new.json')
     if os.path.exists(new_tid_path):
         with open(new_tid_path, 'r') as f:
-            track_ids.update(json.load(f))
-        logging.info(f"Total trackId mappings after merging track_ids_new.json: {len(track_ids)}")
+            new_tids = json.load(f)
+        if new_tids:
+            track_ids.update(new_tids)
+            with open(track_ids_path, 'w') as f:
+                json.dump(dict(track_ids), f)
+            logging.info(f"Merged {len(new_tids)} entries from track_ids_new.json into track_ids.json (total: {len(track_ids)})")
+        os.remove(new_tid_path)
+        logging.info("Removed track_ids_new.json")
 
     # Compute initial stats (including dup_track_ids)
     _recompute_stats()
@@ -683,7 +689,7 @@ def add_embedding_to_database(youtube_id, embedding, track_id=None):
 
     # Save track_id mapping
     if track_id:
-        track_ids_path = '/app/data/track_ids_new.json' if os.path.exists('/app/data') else os.path.join(SCRIPT_DIR, 'track_ids_new.json')
+        track_ids_path = '/app/data/track_ids.json' if os.path.exists('/app/data') else os.path.join(SCRIPT_DIR, 'track_ids.json')
         existing = {}
         if os.path.exists(track_ids_path):
             with open(track_ids_path, 'r') as f:
@@ -977,6 +983,47 @@ def cleanup_unverified():
     return jsonify({
         'status': 'ok',
         'removed': len(removed),
+        'total_remaining': len(video_ids),
+    })
+
+
+@app.route('/api/dedup', methods=['POST'])
+def dedup_database():
+    """Remove duplicate entries: for each group of videos sharing a track_id, keep one and remove the rest."""
+    from collections import defaultdict
+
+    # Snapshot the data under lock to avoid race conditions
+    with db_lock:
+        vids_snapshot = list(video_ids)
+        tids_snapshot = dict(track_ids)
+
+    tid_to_vids = defaultdict(list)
+    for vid in vids_snapshot:
+        tid = tids_snapshot.get(vid)
+        if tid:
+            tid_to_vids[tid].append(vid)
+
+    # For each duplicate group, keep the first video and mark the rest for removal
+    to_remove = []
+    dup_group_count = 0
+    for tid, vids in tid_to_vids.items():
+        if len(vids) > 1:
+            dup_group_count += 1
+            to_remove.extend(vids[1:])  # keep first, remove rest
+
+    if not to_remove:
+        return jsonify({'status': 'ok', 'removed': 0, 'total_remaining': len(video_ids),
+                        'message': 'no duplicates to remove'})
+
+    removed = batch_remove_from_database(to_remove)
+    _recompute_stats()
+    _run_data_regen()
+
+    logging.info(f"Dedup: removed {len(removed)} duplicate entries from {dup_group_count} groups")
+    return jsonify({
+        'status': 'ok',
+        'removed': len(removed),
+        'duplicate_groups': dup_group_count,
         'total_remaining': len(video_ids),
     })
 

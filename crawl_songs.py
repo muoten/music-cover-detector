@@ -145,11 +145,10 @@ def load_track_ids():
     """Load track_id mappings and find video IDs with duplicate track_ids."""
     all_track_ids = {}
 
-    for name in ['track_ids.json', 'track_ids_new.json']:
-        path = resolve_path(name)
-        if os.path.exists(path):
-            with open(path, 'r') as f:
-                all_track_ids.update(json.load(f))
+    path = resolve_path('track_ids.json')
+    if os.path.exists(path):
+        with open(path, 'r') as f:
+            all_track_ids.update(json.load(f))
 
     # Find track_ids used by more than one video
     tid_to_vids = {}
@@ -260,6 +259,24 @@ def call_cleanup_api(api_url):
         return result
     except Exception as e:
         logging.error(f"Cleanup API call failed: {e}")
+        return None
+
+
+def call_dedup_api(api_url):
+    """POST to /api/dedup to remove duplicate entries (keep one per track_id)."""
+    try:
+        req = urllib.request.Request(
+            f"{api_url.rstrip('/')}/api/dedup",
+            data=b'{}', headers={'Content-Type': 'application/json'},
+            method='POST',
+        )
+        resp = urllib.request.urlopen(req, timeout=120)
+        result = json.loads(resp.read().decode('utf-8'))
+        logging.info(f"Dedup API: removed {result.get('removed', '?')} duplicates, "
+                     f"{result.get('total_remaining', '?')} remaining")
+        return result
+    except Exception as e:
+        logging.error(f"Dedup API call failed: {e}")
         return None
 
 
@@ -463,6 +480,11 @@ def main():
         total_work, len(no_trackid_queue), len(queue), phase_label="Phase 1",
     )
 
+    # Remove remaining true duplicates (keep one per track_id)
+    if duplicate_queue:
+        logging.info("Removing true duplicates (keeping one per track_id)...")
+        call_dedup_api(args.api)
+
     # Phase 2: Crawl new songs
     stats = {'added': 0, 'skipped': 0, 'errors': 0, 'transient_errors': 0}
     adaptive_delay = args.delay  # increases on rate limit, resets on success
@@ -559,6 +581,9 @@ def main():
             dedup_queue, args, resolved_path, start_time, last_report_time,
             total_work, len(no_trackid_queue), len(queue), phase_label="Phase 3 (post-crawl dedup)",
         )
+        # Remove remaining true duplicates
+        logging.info("Removing true duplicates (keeping one per track_id)...")
+        call_dedup_api(args.api)
     else:
         logging.info("No new duplicates after Phase 2")
 

@@ -183,10 +183,15 @@ def smart_search_itunes(youtube_id, title=None, channel=None, yt_metadata=None):
     artist, track = parse_artist_track(title)
 
     def _names_match(a, b):
-        """Check if two names match (substring in either direction, ignoring diacritics)."""
+        """Check if two names match (substring in either direction, ignoring diacritics and spacing)."""
         a = strip_diacritics(a).lower()
         b = strip_diacritics(b).lower()
-        return a in b or b in a
+        if a in b or b in a:
+            return True
+        # Also compare with spaces collapsed (handles "McComb" vs "Mc Comb")
+        a_compact = a.replace(' ', '')
+        b_compact = b.replace(' ', '')
+        return a_compact in b_compact or b_compact in a_compact
 
     # Extract artist from YouTube channel name
     channel_artist = None
@@ -209,25 +214,44 @@ def smart_search_itunes(youtube_id, title=None, channel=None, yt_metadata=None):
     # Clean YouTube Music title: strip "- Original" suffix common on Topic channels
     clean_title = re.sub(r'\s*-\s*Original\s*$', '', title, flags=re.IGNORECASE).strip() or title
 
+    def _clean_search_term(term):
+        """Strip parenthetical/bracket suffixes that poison iTunes search.
+
+        Removes: (Official), (Official Audio), (Official Video), (Remastered),
+        (Remastered YYYY), (Live), [Official Audio], etc.
+        """
+        return re.sub(r'\s*[\(\[][^)\]]*(?:official|remaster|live|version|audio|video|mono|stereo)[^)\]]*[\)\]]',
+                       '', term, flags=re.IGNORECASE).strip() or term
+
+    # For channel artists with "&" or "and", extract primary artist for fallback searches
+    primary_artist = channel_artist
+    if channel_artist and re.search(r'\s+[&]\s+|\s+and\s+', channel_artist, re.IGNORECASE):
+        primary_artist = re.split(r'\s+[&]\s+|\s+and\s+', channel_artist, flags=re.IGNORECASE)[0].strip()
+
     # Strategy YT: Use structured artist+track from yt-dlp metadata (highest confidence)
     if yt_metadata:
         yt_artist = yt_metadata.get('artist', '')
         yt_track = yt_metadata.get('track', '')
         if yt_artist and yt_track:
-            results = search_itunes(f"{yt_artist} {yt_track}")
-            for r in results:
-                if (_names_match(yt_artist, r.get('artistName', '')) and
-                        _names_match(yt_track, r.get('trackName', '')) and
-                        r.get('previewUrl')):
-                    return r, r.get('trackId')
+            for term in dict.fromkeys([f"{yt_artist} {yt_track}", _clean_search_term(f"{yt_artist} {yt_track}")]):
+                results = search_itunes(term)
+                for r in results:
+                    if (_names_match(yt_artist, r.get('artistName', '')) and
+                            _names_match(yt_track, r.get('trackName', '')) and
+                            r.get('previewUrl')):
+                        return r, r.get('trackId')
 
     # Strategy 0: Use channel artist + track (best for Topic channels)
     if channel_artist:
         # For Topic channels, the full title IS the track name (not parsed "track")
         expected_track = clean_title if is_topic else (track or clean_title)
         search_term = f"{channel_artist} {expected_track}"
-        # Try original, then diacritics-stripped
-        for term in dict.fromkeys([search_term, strip_diacritics(search_term)]):
+        # Try: original, diacritics-stripped, cleaned (no parentheticals), primary artist only
+        search_variants = [search_term, strip_diacritics(search_term), _clean_search_term(search_term)]
+        if primary_artist != channel_artist:
+            search_variants.append(f"{primary_artist} {expected_track}")
+            search_variants.append(_clean_search_term(f"{primary_artist} {expected_track}"))
+        for term in dict.fromkeys(search_variants):
             results = search_itunes(term)
             for r in results:
                 if (_names_match(channel_artist, r.get('artistName', '')) and
@@ -241,25 +265,27 @@ def smart_search_itunes(youtube_id, title=None, channel=None, yt_metadata=None):
 
     # Strategy 1: Search with artist + track (from title parsing)
     if artist and track:
-        results = search_itunes(f"{artist} {track}")
-        if results:
-            for r in results:
-                if (_names_match(artist, r.get('artistName', '')) and
-                        _names_match(track, r.get('trackName', '')) and
-                        r.get('previewUrl') and _artist_ok(r.get('artistName', ''))):
-                    return r, r.get('trackId')
-            for r in results:
-                if (r.get('previewUrl') and _artist_ok(r.get('artistName', '')) and
-                        _names_match(track, r.get('trackName', ''))):
-                    return r, r.get('trackId')
+        for term in dict.fromkeys([f"{artist} {track}", _clean_search_term(f"{artist} {track}")]):
+            results = search_itunes(term)
+            if results:
+                for r in results:
+                    if (_names_match(artist, r.get('artistName', '')) and
+                            _names_match(track, r.get('trackName', '')) and
+                            r.get('previewUrl') and _artist_ok(r.get('artistName', ''))):
+                        return r, r.get('trackId')
+                for r in results:
+                    if (r.get('previewUrl') and _artist_ok(r.get('artistName', '')) and
+                            _names_match(track, r.get('trackName', ''))):
+                        return r, r.get('trackId')
 
     # Strategy 2: Search with just title
     expected = track or clean_title
-    results = search_itunes(title)
-    for r in results:
-        if (r.get('previewUrl') and _artist_ok(r.get('artistName', '')) and
-                _names_match(expected, r.get('trackName', ''))):
-            return r, r.get('trackId')
+    for term in dict.fromkeys([title, _clean_search_term(title)]):
+        results = search_itunes(term)
+        for r in results:
+            if (r.get('previewUrl') and _artist_ok(r.get('artistName', '')) and
+                    _names_match(expected, r.get('trackName', ''))):
+                return r, r.get('trackId')
 
     return None, None
 
