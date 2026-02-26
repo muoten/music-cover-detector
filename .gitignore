@@ -3,9 +3,9 @@
 *.csv
 !vectors.csv
 !vectors_vinet.csv
-!videos_to_test.csv
 !requirements.txt
 *.npz
+Discogs-VI-YT-20240701.jsonl
 discogs-vinet-itunes/cover_map.json
 discogs-vinet-itunes/youtube_ids.txt
 discogs-coverhunter-itunes/youtube_ids.txt
