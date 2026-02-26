@@ -661,7 +661,7 @@ def batch_remove_from_database(ids_to_remove):
     return removed
 
 
-def add_embedding_to_database(youtube_id, embedding, track_id=None):
+def add_embedding_to_database(youtube_id, embedding, track_id=None, force=False):
     """
     Add a new embedding to the in-memory database and persistent storage.
     Called asynchronously after returning search results.
@@ -689,8 +689,8 @@ def add_embedding_to_database(youtube_id, embedding, track_id=None):
         if not is_new:
             idx = video_ids.index(youtube_id)
             old_track_id = track_ids.get(youtube_id)
-            if track_id and track_id == old_track_id:
-                return  # same iTunes match, nothing to update
+            if track_id and track_id == old_track_id and not force:
+                return  # same iTunes match and not forced, nothing to update
             embeddings_matrix[idx] = embedding
             embedding_hashes[youtube_id] = new_hash
             if track_id:
@@ -706,15 +706,30 @@ def add_embedding_to_database(youtube_id, embedding, track_id=None):
                 track_ids[youtube_id] = track_id
                 _dup_cache_dirty = True
 
-    # Only append to disk for genuinely new songs
-    if is_new:
-        persistent_vectors = '/app/data/vectors.csv'
-        local_vectors = os.path.join(SCRIPT_DIR, '..', 'vectors.csv')
-        vectors_path = persistent_vectors if os.path.exists('/app/data') else local_vectors
+    # Persist to disk
+    persistent_vectors = '/app/data/vectors.csv'
+    local_vectors = os.path.join(SCRIPT_DIR, '..', 'vectors.csv')
+    vectors_path = persistent_vectors if os.path.exists('/app/data') else local_vectors
 
+    if is_new:
         emb_str = ' '.join(f'{x:.6f}' for x in embedding)
         with open(vectors_path, 'a') as f:
             f.write(f'{youtube_id},"[ {emb_str} ]"\n')
+    elif force:
+        # Rewrite vectors.csv to update the embedding on disk
+        import tempfile
+        emb_str = ' '.join(f'{x:.6f}' for x in embedding)
+        tmp_path = vectors_path + '.tmp'
+        with open(vectors_path, 'r') as fin, open(tmp_path, 'w') as fout:
+            for line in fin:
+                vid_in_line = line.split(',', 1)[0]
+                if vid_in_line.endswith('.wav'):
+                    vid_in_line = vid_in_line.rsplit('/', 1)[-1].replace('.wav', '')
+                if vid_in_line == youtube_id:
+                    fout.write(f'{youtube_id},"[ {emb_str} ]"\n')
+                else:
+                    fout.write(line)
+        os.replace(tmp_path, vectors_path)
 
     # Save track_id mapping
     if track_id:
@@ -737,11 +752,11 @@ def add_embedding_to_database(youtube_id, embedding, track_id=None):
     check_data_regen()
 
 
-def async_add_embedding(youtube_id, embedding, track_id=None):
+def async_add_embedding(youtube_id, embedding, track_id=None, force=False):
     """Trigger async database update in background thread."""
     thread = threading.Thread(
         target=add_embedding_to_database,
-        args=(youtube_id, embedding, track_id),
+        args=(youtube_id, embedding, track_id, force),
         daemon=True
     )
     thread.start()
@@ -901,7 +916,7 @@ def api_search():
         in_database = False
 
         # Async add to database for future searches
-        async_add_embedding(youtube_id, embedding.copy(), query_track_id)
+        async_add_embedding(youtube_id, embedding.copy(), query_track_id, force=force)
 
         # Track non-Discogs searches
         if youtube_id not in clique_map:
@@ -1018,41 +1033,57 @@ def cleanup_unverified():
 
 @app.route('/api/dedup', methods=['POST'])
 def dedup_database():
-    """Remove duplicate entries: for each group of videos sharing a track_id, keep one and remove the rest."""
+    """Remove duplicate entries: by track_id and by embedding hash."""
     from collections import defaultdict
 
     # Snapshot the data under lock to avoid race conditions
     with db_lock:
         vids_snapshot = list(video_ids)
         tids_snapshot = dict(track_ids)
+        hashes_snapshot = dict(embedding_hashes)
 
+    to_remove_set = set()
+
+    # Pass 1: dedup by track_id
+    tid_groups = 0
     tid_to_vids = defaultdict(list)
     for vid in vids_snapshot:
         tid = tids_snapshot.get(vid)
         if tid:
             tid_to_vids[tid].append(vid)
-
-    # For each duplicate group, keep the first video and mark the rest for removal
-    to_remove = []
-    dup_group_count = 0
     for tid, vids in tid_to_vids.items():
         if len(vids) > 1:
-            dup_group_count += 1
-            to_remove.extend(vids[1:])  # keep first, remove rest
+            tid_groups += 1
+            to_remove_set.update(vids[1:])
 
-    if not to_remove:
+    # Pass 2: dedup by embedding hash (catches identical audio with different track_ids)
+    hash_groups = 0
+    hash_to_vids = defaultdict(list)
+    for vid in vids_snapshot:
+        if vid in to_remove_set:
+            continue  # already marked for removal
+        h = hashes_snapshot.get(vid)
+        if h:
+            hash_to_vids[h].append(vid)
+    for h, vids in hash_to_vids.items():
+        if len(vids) > 1:
+            hash_groups += 1
+            to_remove_set.update(vids[1:])
+
+    if not to_remove_set:
         return jsonify({'status': 'ok', 'removed': 0, 'total_remaining': len(video_ids),
                         'message': 'no duplicates to remove'})
 
-    removed = batch_remove_from_database(to_remove)
+    removed = batch_remove_from_database(list(to_remove_set))
     _recompute_stats()
     _run_data_regen()
 
-    logging.info(f"Dedup: removed {len(removed)} duplicate entries from {dup_group_count} groups")
+    logging.info(f"Dedup: removed {len(removed)} entries ({tid_groups} track_id groups, {hash_groups} embedding hash groups)")
     return jsonify({
         'status': 'ok',
         'removed': len(removed),
-        'duplicate_groups': dup_group_count,
+        'tid_duplicate_groups': tid_groups,
+        'hash_duplicate_groups': hash_groups,
         'total_remaining': len(video_ids),
     })
 
