@@ -287,6 +287,7 @@ def run_dedup_phase(duplicate_queue, args, resolved_path, start_time, last_repor
         return last_report_time
 
     logging.info(f"=== {phase_label}: Re-crawling {len(duplicate_queue)} songs with duplicate track_ids ===")
+    phase_start = time.time()
     dup_stats = {'updated': 0, 'errors': 0}
 
     for i, video_id in enumerate(duplicate_queue):
@@ -322,8 +323,8 @@ def run_dedup_phase(duplicate_queue, args, resolved_path, start_time, last_repor
         now = time.time()
         if now - last_report_time >= 20:
             dup_processed = dup_stats['updated'] + dup_stats['errors']
-            elapsed = now - start_time
-            rate = dup_processed / elapsed * 3600 if elapsed > 0 else 0
+            phase_elapsed = now - phase_start
+            rate = dup_processed / phase_elapsed * 3600 if phase_elapsed > 0 else 0
             remaining = len(duplicate_queue) - (i + 1)
             eta_hours = remaining / rate if rate > 0 else 0
             report_progress(args.api, 'dedup', no_tid_count + dup_processed, total_work, rate, eta_hours, remaining,
@@ -420,6 +421,7 @@ def main():
     # Phase 0: Re-crawl songs with no track_id (unverified iTunes matches)
     if no_trackid_queue:
         logging.info(f"=== Phase 0: Re-crawling {len(no_trackid_queue)} songs with no track_id ===")
+        phase_start = time.time()
         ntid_stats = {'updated': 0, 'errors': 0}
 
         for i, video_id in enumerate(no_trackid_queue):
@@ -456,8 +458,8 @@ def main():
             now = time.time()
             if now - last_report_time >= 20:
                 ntid_processed = ntid_stats['updated'] + ntid_stats['errors']
-                elapsed = now - start_time
-                rate = ntid_processed / elapsed * 3600 if elapsed > 0 else 0
+                phase_elapsed = now - phase_start
+                rate = ntid_processed / phase_elapsed * 3600 if phase_elapsed > 0 else 0
                 remaining = len(no_trackid_queue) - (i + 1) + len(duplicate_queue) + len(queue)
                 eta_hours = remaining / rate if rate > 0 else 0
                 report_progress(args.api, 'no_trackid', ntid_processed, total_work, rate, eta_hours, remaining,
@@ -486,6 +488,7 @@ def main():
         call_dedup_api(args.api)
 
     # Phase 2: Crawl new songs
+    phase_start = time.time()
     stats = {'added': 0, 'skipped': 0, 'errors': 0, 'transient_errors': 0}
     adaptive_delay = args.delay  # increases on rate limit, resets on success
 
@@ -539,8 +542,8 @@ def main():
         # Periodic stats
         processed = stats['added'] + stats['skipped'] + stats['transient_errors']
         now = time.time()
-        elapsed = now - start_time
-        rate = processed / elapsed * 3600 if elapsed > 0 else 0
+        phase_elapsed = now - phase_start
+        rate = processed / phase_elapsed * 3600 if phase_elapsed > 0 else 0
         remaining = len(queue) - (i + 1)
         eta_hours = remaining / rate if rate > 0 else 0
         if processed > 0 and processed % 100 == 0:
