@@ -68,6 +68,7 @@ embeddings_matrix = None  # (N, 128) normalized
 video_ids = []  # list of YouTube IDs in same order as embeddings
 video_metadata = {}  # youtube_id -> {title, artist, track}
 clique_map = {}  # youtube_id -> clique_id
+cover_map = {}  # youtube_id -> [list of cover youtube_ids]
 embedding_hashes = {}  # youtube_id -> hash of embedding
 track_ids = {}  # youtube_id -> iTunes trackId
 _dup_cache = {}  # cached duplicate track_id stats
@@ -82,6 +83,30 @@ def compute_embedding_hash(embedding):
     """Compute a short hash of an embedding vector."""
     emb_bytes = embedding.astype(np.float32).tobytes()
     return hashlib.md5(emb_bytes).hexdigest()[:8]
+
+
+def build_cover_map():
+    """Build bidirectional cover map from clique_map.
+
+    Groups videos by clique and maps each video to all other videos in the
+    same clique. This replaces the static cover_map.json file.
+    """
+    global cover_map
+    cover_map = {}
+
+    # Group video IDs by clique
+    clique_to_vids = {}
+    for vid, clique_id in clique_map.items():
+        clique_to_vids.setdefault(clique_id, []).append(vid)
+
+    # Build bidirectional map
+    for clique_id, vids in clique_to_vids.items():
+        if len(vids) < 2:
+            continue
+        for vid in vids:
+            cover_map[vid] = [other for other in vids if other != vid]
+
+    logging.info(f"Built cover_map: {len(cover_map)} songs with covers ({len(clique_to_vids)} cliques)")
 
 
 def load_clique_map():
@@ -112,6 +137,8 @@ def load_clique_map():
             discogs_songs = sum(1 for vid in video_ids if vid in clique_map and clique_map[vid].startswith('C'))
             db_stats['discogs_songs'] = discogs_songs
             logging.info(f"Songs from Discogs: {discogs_songs}/{len(video_ids)}")
+            build_cover_map()
+            compute_precision_at_1()
             return
 
     logging.info("No clique map found")
@@ -326,31 +353,15 @@ def load_database():
     # Compute initial stats (including dup_track_ids)
     _recompute_stats()
 
-    # Compute Precision@1
-    compute_precision_at_1()
-
 
 def compute_precision_at_1():
-    """Compute Precision@1 using cover_map.json."""
+    """Compute Precision@1 using the in-memory cover_map."""
     global db_stats
 
     start_time = time.time()
 
-    cover_map_paths = [
-        os.path.join(SCRIPT_DIR, 'cover_map.json'),
-        os.path.join(SCRIPT_DIR, '..', 'cover_map.json'),
-        '/app/cover_map.json',
-    ]
-
-    cover_map = None
-    for path in cover_map_paths:
-        if os.path.exists(path):
-            with open(path, 'r') as f:
-                cover_map = json.load(f)
-            break
-
     if not cover_map:
-        logging.info("No cover_map.json found, skipping P@1 computation")
+        logging.info("No cover_map available, skipping P@1 computation")
         return
 
     vid_to_idx = {vid: i for i, vid in enumerate(video_ids)}
@@ -514,25 +525,13 @@ def _recompute_stats():
     no_track_id = _dup_cache.get('no_track_id', 0)
 
     # Cheaply count evaluable songs (have at least one cover in the database)
-    cover_map_paths = [
-        os.path.join(SCRIPT_DIR, 'cover_map.json'),
-        os.path.join(SCRIPT_DIR, '..', 'cover_map.json'),
-        '/app/cover_map.json',
-    ]
     evaluable = db_stats.get('evaluable_songs', 0)
-    for path in cover_map_paths:
-        if os.path.exists(path):
-            try:
-                with open(path, 'r') as f:
-                    cover_map = json.load(f)
-                vid_set = set(video_ids)
-                evaluable = sum(
-                    1 for vid in video_ids
-                    if vid in cover_map and any(c in vid_set for c in cover_map[vid])
-                )
-            except Exception:
-                pass
-            break
+    if cover_map:
+        vid_set = set(video_ids)
+        evaluable = sum(
+            1 for vid in video_ids
+            if vid in cover_map and any(c in vid_set for c in cover_map[vid])
+        )
 
     # Count pipeline-level stats from data files
     source_path = '/app/data/videos_to_test.csv' if os.path.isdir('/app/data') else 'videos_to_test.csv'

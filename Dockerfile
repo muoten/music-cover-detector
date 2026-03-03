@@ -34,9 +34,6 @@ COPY discogs-coverhunter-itunes/model/ ./model/
 COPY docs/ ./static/
 RUN ln -s /app/static /app/docs
 
-# Copy data files (vectors.csv and videos_to_test.csv live on persistent volume /app/data)
-COPY discogs-coverhunter-itunes/cover_map.json ./
-
 # Expose port
 EXPOSE 8080
 
