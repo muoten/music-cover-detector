@@ -106,6 +106,8 @@ def build_cover_map():
         for vid in vids:
             cover_map[vid] = [other for other in vids if other != vid]
 
+    db_stats['cover_map_songs'] = len(cover_map)
+    db_stats['cliques'] = len(clique_to_vids)
     logging.info(f"Built cover_map: {len(cover_map)} songs with covers ({len(clique_to_vids)} cliques)")
 
 

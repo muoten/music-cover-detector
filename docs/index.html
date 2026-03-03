@@ -1839,7 +1839,8 @@
                     songsTooltip += `\nNo iTunes match: ${noItunes.toLocaleString()}`;
                     songsTooltip += `\nDuplicated song (re-uploads removed): ${removedDups.toLocaleString()}`;
                     songsTooltip += `\nIndexed: ${s.total_songs.toLocaleString()} (${model})`;
-                    let p1Tooltip = `P@1: ${hits}/${evalN} hits in ${compTime}\n${evalN.toLocaleString()} of ${s.total_songs.toLocaleString()} songs are evaluable (have both clique + iTunes track ID)`;
+                    const cliques = s.cliques || '?';
+                    let p1Tooltip = `P@1: ${hits}/${evalN} hits in ${compTime}\n${evalN.toLocaleString()} of ${s.total_songs.toLocaleString()} songs are evaluable (have both clique + iTunes track ID)\n${typeof cliques === 'number' ? cliques.toLocaleString() : cliques} cliques (unique compositions)`;
                     if (s.crawl_progress && s.crawl_progress.phase !== 'done') {
                         const cp = s.crawl_progress;
                         const etaStr = cp.rate_per_hour > 0 ? (cp.eta_hours < 1 ? Math.round(cp.eta_hours * 60) + 'm' : cp.eta_hours.toFixed(1) + 'h') : 'starting...';
