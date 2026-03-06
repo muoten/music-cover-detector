@@ -732,7 +732,7 @@ def add_embedding_to_database(youtube_id, embedding, track_id=None, force=False)
                     fout.write(line)
         os.replace(tmp_path, vectors_path)
 
-    # Save track_id mapping
+    # Save track_id mapping (atomic write to prevent corruption on restart)
     if track_id:
         track_ids_path = '/app/data/track_ids.json' if os.path.exists('/app/data') else os.path.join(SCRIPT_DIR, 'track_ids.json')
         existing = {}
@@ -740,8 +740,10 @@ def add_embedding_to_database(youtube_id, embedding, track_id=None, force=False)
             with open(track_ids_path, 'r') as f:
                 existing = json.load(f)
         existing[youtube_id] = track_id
-        with open(track_ids_path, 'w') as f:
+        tmp_path = track_ids_path + '.tmp'
+        with open(tmp_path, 'w') as f:
             json.dump(existing, f)
+        os.replace(tmp_path, track_ids_path)
 
     # Recompute Precision@1 every 100 songs (takes ~15s per computation)
     if db_stats['total_songs'] % 100 == 0:

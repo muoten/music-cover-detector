@@ -11,6 +11,7 @@ Usage:
 """
 
 import argparse
+import collections
 import csv
 import json
 import logging
@@ -24,6 +25,31 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s %(levelname)s %(message)s',
 )
+
+
+class RollingRate:
+    """Track processing rate using a rolling window of timestamps."""
+
+    def __init__(self, window=100):
+        self._timestamps = collections.deque(maxlen=window)
+
+    def tick(self):
+        """Record that one item was processed."""
+        self._timestamps.append(time.time())
+
+    def rate_per_hour(self):
+        """Return items/hour based on the rolling window."""
+        if len(self._timestamps) < 2:
+            return 0
+        elapsed = self._timestamps[-1] - self._timestamps[0]
+        if elapsed <= 0:
+            return 0
+        return (len(self._timestamps) - 1) / elapsed * 3600
+
+    def eta_hours(self, remaining):
+        """Return estimated hours to process remaining items."""
+        r = self.rate_per_hour()
+        return remaining / r if r > 0 else 0
 
 
 def resolve_path(name, persistent_dir='/app/data', local_dir='.'):
@@ -288,6 +314,7 @@ def run_dedup_phase(duplicate_queue, args, resolved_path, start_time, last_repor
 
     logging.info(f"=== {phase_label}: Re-crawling {len(duplicate_queue)} songs with duplicate track_ids ===")
     phase_start = time.time()
+    rolling = RollingRate()
     dup_stats = {'updated': 0, 'errors': 0}
 
     for i, video_id in enumerate(duplicate_queue):
@@ -320,14 +347,14 @@ def run_dedup_phase(duplicate_queue, args, resolved_path, start_time, last_repor
                 logging.info(f"[dup {i+1}/{len(duplicate_queue)}] {video_id}: failed — {message}")
                 break
 
+        rolling.tick()
         now = time.time()
         if now - last_report_time >= 20:
             dup_processed = dup_stats['updated'] + dup_stats['errors']
-            phase_elapsed = now - phase_start
-            rate = dup_processed / phase_elapsed * 3600 if phase_elapsed > 0 else 0
+            rate = rolling.rate_per_hour()
             remaining = len(duplicate_queue) - (i + 1)
-            eta_hours = remaining / rate if rate > 0 else 0
-            report_progress(args.api, 'dedup', no_tid_count + dup_processed, total_work, rate, eta_hours, remaining,
+            eta = rolling.eta_hours(remaining)
+            report_progress(args.api, 'dedup', no_tid_count + dup_processed, total_work, rate, eta, remaining,
                             dup_total=len(duplicate_queue), new_total=new_count, no_tid_total=no_tid_count)
             last_report_time = now
         time.sleep(args.delay)
@@ -422,6 +449,7 @@ def main():
     if no_trackid_queue:
         logging.info(f"=== Phase 0: Re-crawling {len(no_trackid_queue)} songs with no track_id ===")
         phase_start = time.time()
+        rolling = RollingRate()
         ntid_stats = {'updated': 0, 'errors': 0}
 
         for i, video_id in enumerate(no_trackid_queue):
@@ -455,14 +483,14 @@ def main():
                     logging.info(f"[no_tid {i+1}/{len(no_trackid_queue)}] {video_id}: failed — {message}")
                     break
 
+            rolling.tick()
             now = time.time()
             if now - last_report_time >= 20:
                 ntid_processed = ntid_stats['updated'] + ntid_stats['errors']
-                phase_elapsed = now - phase_start
-                rate = ntid_processed / phase_elapsed * 3600 if phase_elapsed > 0 else 0
+                rate = rolling.rate_per_hour()
                 remaining = len(no_trackid_queue) - (i + 1) + len(duplicate_queue) + len(queue)
-                eta_hours = remaining / rate if rate > 0 else 0
-                report_progress(args.api, 'no_trackid', ntid_processed, total_work, rate, eta_hours, remaining,
+                eta = rolling.eta_hours(remaining)
+                report_progress(args.api, 'no_trackid', ntid_processed, total_work, rate, eta, remaining,
                                 dup_total=len(duplicate_queue), new_total=len(queue), no_tid_total=len(no_trackid_queue))
                 last_report_time = now
             time.sleep(args.delay)
@@ -489,6 +517,7 @@ def main():
 
     # Phase 2: Crawl new songs
     phase_start = time.time()
+    rolling = RollingRate()
     stats = {'added': 0, 'skipped': 0, 'errors': 0, 'transient_errors': 0}
     adaptive_delay = args.delay  # increases on rate limit, resets on success
 
@@ -540,23 +569,23 @@ def main():
                 break
 
         # Periodic stats
+        rolling.tick()
         processed = stats['added'] + stats['skipped'] + stats['transient_errors']
         now = time.time()
-        phase_elapsed = now - phase_start
-        rate = processed / phase_elapsed * 3600 if phase_elapsed > 0 else 0
+        rate = rolling.rate_per_hour()
         remaining = len(queue) - (i + 1)
-        eta_hours = remaining / rate if rate > 0 else 0
+        eta = rolling.eta_hours(remaining)
         if processed > 0 and processed % 100 == 0:
             logging.info(
                 f"--- Stats: {processed} processed | "
                 f"{stats['added']} added | {stats['skipped']} skipped | "
                 f"{stats['transient_errors']} transient errors | "
                 f"{remaining} remaining | "
-                f"{rate:.0f}/hr | ETA: {eta_hours:.1f}h"
+                f"{rate:.0f}/hr | ETA: {eta:.1f}h"
             )
         if now - last_report_time >= 20:
             report_progress(args.api, 'crawling', len(no_trackid_queue) + len(duplicate_queue) + processed,
-                            total_work, rate, eta_hours, remaining,
+                            total_work, rate, eta, remaining,
                             dup_total=len(duplicate_queue), new_total=len(queue), no_tid_total=len(no_trackid_queue))
             last_report_time = now
 
