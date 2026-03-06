@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -329,10 +330,24 @@ def load_database():
         track_ids_path = os.path.join(SCRIPT_DIR, 'track_ids.json')
     progress_path = os.path.join(SCRIPT_DIR, 'progress.json')
 
+    bak_path = track_ids_path + '.bak'
     if os.path.exists(track_ids_path):
-        with open(track_ids_path, 'r') as f:
-            track_ids.update(json.load(f))
-        logging.info(f"Loaded {len(track_ids)} trackId mappings from track_ids.json")
+        try:
+            with open(track_ids_path, 'r') as f:
+                track_ids.update(json.load(f))
+            logging.info(f"Loaded {len(track_ids)} trackId mappings from track_ids.json")
+            shutil.copy2(track_ids_path, bak_path)
+            logging.info(f"Backed up track_ids.json ({len(track_ids)} entries)")
+        except json.JSONDecodeError:
+            logging.error("track_ids.json is corrupted, attempting recovery from backup")
+            if os.path.exists(bak_path):
+                with open(bak_path, 'r') as f:
+                    track_ids.update(json.load(f))
+                # Restore the backup as the main file
+                shutil.copy2(bak_path, track_ids_path)
+                logging.info(f"Recovered {len(track_ids)} trackId mappings from backup")
+            else:
+                logging.error("No backup available for track_ids.json")
     elif os.path.exists(progress_path):
         with open(progress_path, 'r') as f:
             progress = json.load(f)
