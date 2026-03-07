@@ -1027,6 +1027,61 @@ def reload_database():
         return jsonify({'status': 'error', 'error': str(e)}), 500
 
 
+@app.route('/api/resolve-trackid', methods=['POST'])
+def resolve_trackid():
+    """Look up iTunes track_id for a video already in the database, without recomputing embedding."""
+    data = request.get_json() or {}
+    youtube_id = data.get('youtube_id', '').strip()
+
+    if not youtube_id:
+        return jsonify({'error': 'Missing youtube_id'}), 400
+
+    if youtube_id not in video_ids:
+        return jsonify({'error': 'Not in database'}), 404
+
+    # Already has a track_id
+    if youtube_id in track_ids:
+        return jsonify({'status': 'ok', 'youtube_id': youtube_id, 'track_id': track_ids[youtube_id], 'cached': True})
+
+    # Look up YouTube metadata
+    yt_metadata = get_youtube_metadata(youtube_id)
+    if not yt_metadata:
+        yt_metadata = get_youtube_info(youtube_id)
+    title = yt_metadata.get('title', '') if yt_metadata else ''
+    channel = yt_metadata.get('channel', '') if yt_metadata else ''
+
+    if not title:
+        return jsonify({'error': 'Failed to get YouTube title', 'youtube_id': youtube_id}), 404
+
+    # Search iTunes (no download, no embedding)
+    try:
+        track_info, track_id = smart_search_itunes(youtube_id, title, channel=channel, yt_metadata=yt_metadata)
+    except ITunesRateLimitError:
+        return jsonify({'error': 'iTunes rate limited'}), 429
+
+    if not track_id:
+        return jsonify({'error': 'No iTunes match found', 'youtube_id': youtube_id}), 404
+
+    # Save the track_id
+    global _dup_cache_dirty
+    track_ids[youtube_id] = track_id
+    _dup_cache_dirty = True
+
+    # Persist atomically
+    track_ids_path = '/app/data/track_ids.json' if os.path.exists('/app/data') else os.path.join(SCRIPT_DIR, 'track_ids.json')
+    existing = {}
+    if os.path.exists(track_ids_path):
+        with open(track_ids_path, 'r') as f:
+            existing = json.load(f)
+    existing[youtube_id] = track_id
+    tmp_path = track_ids_path + '.tmp'
+    with open(tmp_path, 'w') as f:
+        json.dump(existing, f)
+    os.replace(tmp_path, track_ids_path)
+
+    return jsonify({'status': 'ok', 'youtube_id': youtube_id, 'track_id': track_id})
+
+
 @app.route('/api/cleanup-unverified', methods=['POST'])
 def cleanup_unverified():
     """Remove all indexed tracks that have no iTunes match (no track_id)."""

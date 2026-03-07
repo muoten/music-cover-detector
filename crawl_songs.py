@@ -270,6 +270,50 @@ def call_search_api(api_url, video_id, force=False):
         return False, True, f'Unexpected error: {e}'
 
 
+def call_resolve_trackid_api(api_url, video_id):
+    """
+    Call the /api/resolve-trackid endpoint to look up iTunes track_id only.
+
+    Returns: (success, is_transient_error, message)
+    """
+    url = f"{api_url.rstrip('/')}/api/resolve-trackid"
+    payload = json.dumps({'youtube_id': video_id}).encode('utf-8')
+    req = urllib.request.Request(
+        url, data=payload, headers={'Content-Type': 'application/json'},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+            tid = data.get('track_id', '?')
+            cached = data.get('cached', False)
+            return True, False, f'track_id={tid}{"  (cached)" if cached else ""}'
+    except urllib.error.HTTPError as e:
+        body = ''
+        try:
+            body = e.read().decode('utf-8', errors='replace')
+        except Exception:
+            pass
+        if e.code == 429:
+            return False, True, 'HTTP 429: rate limited'
+        elif e.code == 404:
+            error_detail = ''
+            try:
+                error_detail = json.loads(body).get('error', '')
+            except Exception:
+                error_detail = body[:200]
+            return False, False, f'HTTP 404: {error_detail}'
+        elif e.code >= 500:
+            return False, True, f'HTTP {e.code}: {body[:200]}'
+        else:
+            return False, False, f'HTTP {e.code}: {body[:200]}'
+    except urllib.error.URLError as e:
+        return False, True, f'URL error: {e.reason}'
+    except TimeoutError:
+        return False, True, 'Request timed out'
+    except Exception as e:
+        return False, True, f'Unexpected error: {e}'
+
+
 def call_cleanup_api(api_url):
     """POST to /api/cleanup-unverified to remove tracks with no iTunes match."""
     try:
@@ -455,7 +499,7 @@ def main():
         for i, video_id in enumerate(no_trackid_queue):
             retries = 0
             while retries <= args.max_retries:
-                success, is_transient, message = call_search_api(args.api, video_id, force=True)
+                success, is_transient, message = call_resolve_trackid_api(args.api, video_id)
 
                 if success:
                     ntid_stats['updated'] += 1
