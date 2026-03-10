@@ -395,10 +395,11 @@ def run_dedup_phase(duplicate_queue, args, resolved_path, start_time, last_repor
         now = time.time()
         if now - last_report_time >= 20:
             dup_processed = dup_stats['updated'] + dup_stats['errors']
-            rate = rolling.rate_per_hour()
+            phase_elapsed = now - phase_start
+            avg_rate = dup_processed / phase_elapsed * 3600 if phase_elapsed > 0 else 0
             remaining = len(duplicate_queue) - (i + 1)
-            eta = rolling.eta_hours(remaining)
-            report_progress(args.api, 'dedup', no_tid_count + dup_processed, total_work, rate, eta, remaining,
+            eta = remaining / avg_rate if avg_rate > 0 else 0
+            report_progress(args.api, 'dedup', no_tid_count + dup_processed, total_work, avg_rate, eta, remaining,
                             dup_total=len(duplicate_queue), new_total=new_count, no_tid_total=no_tid_count)
             last_report_time = now
         time.sleep(args.delay)
@@ -531,10 +532,11 @@ def main():
             now = time.time()
             if now - last_report_time >= 20:
                 ntid_processed = ntid_stats['updated'] + ntid_stats['errors']
-                rate = rolling.rate_per_hour()
+                phase_elapsed = now - phase_start
+                avg_rate = ntid_processed / phase_elapsed * 3600 if phase_elapsed > 0 else 0
                 remaining = len(no_trackid_queue) - (i + 1) + len(duplicate_queue) + len(queue)
-                eta = rolling.eta_hours(remaining)
-                report_progress(args.api, 'no_trackid', ntid_processed, total_work, rate, eta, remaining,
+                eta = remaining / avg_rate if avg_rate > 0 else 0
+                report_progress(args.api, 'no_trackid', ntid_processed, total_work, avg_rate, eta, remaining,
                                 dup_total=len(duplicate_queue), new_total=len(queue), no_tid_total=len(no_trackid_queue))
                 last_report_time = now
             time.sleep(args.delay)
@@ -616,20 +618,22 @@ def main():
         rolling.tick()
         processed = stats['added'] + stats['skipped'] + stats['transient_errors']
         now = time.time()
-        rate = rolling.rate_per_hour()
+        current_rate = rolling.rate_per_hour()
+        phase_elapsed = now - phase_start
+        avg_rate = processed / phase_elapsed * 3600 if phase_elapsed > 0 else 0
         remaining = len(queue) - (i + 1)
-        eta = rolling.eta_hours(remaining)
+        eta = remaining / avg_rate if avg_rate > 0 else 0
         if processed > 0 and processed % 100 == 0:
             logging.info(
                 f"--- Stats: {processed} processed | "
                 f"{stats['added']} added | {stats['skipped']} skipped | "
                 f"{stats['transient_errors']} transient errors | "
                 f"{remaining} remaining | "
-                f"{rate:.0f}/hr | ETA: {eta:.1f}h"
+                f"{current_rate:.0f}/hr (now) {avg_rate:.0f}/hr (avg) | ETA: {eta:.1f}h"
             )
         if now - last_report_time >= 20:
             report_progress(args.api, 'crawling', len(no_trackid_queue) + len(duplicate_queue) + processed,
-                            total_work, rate, eta, remaining,
+                            total_work, avg_rate, eta, remaining,
                             dup_total=len(duplicate_queue), new_total=len(queue), no_tid_total=len(no_trackid_queue))
             last_report_time = now
 
