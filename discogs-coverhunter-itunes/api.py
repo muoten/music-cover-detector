@@ -79,6 +79,15 @@ db_lock = threading.Lock()  # protects all database mutations + stats
 last_regen_count = 0  # song count at last data.json regeneration threshold
 regen_running = False  # True while update_data.py is running in background
 
+# LIVI model (score fusion)
+livi_model = None
+whisper_encoder = None
+livi_embeddings_matrix = None  # (M, 768) normalized, M <= N
+livi_video_ids = []             # parallel to livi_embeddings_matrix
+livi_vid_to_idx = {}            # youtube_id -> index in livi_embeddings_matrix
+FUSION_WEIGHT_CH = 0.70
+FUSION_WEIGHT_LIVI = 0.30
+
 
 def compute_embedding_hash(embedding):
     """Compute a short hash of an embedding vector."""
@@ -232,6 +241,66 @@ def _run_data_regen():
     thread.start()
 
 
+def load_livi_vectors():
+    """Load pre-computed LIVI embeddings from vectors_livi.csv."""
+    global livi_embeddings_matrix, livi_video_ids, livi_vid_to_idx
+
+    livi_paths = [
+        '/app/data/vectors_livi.csv',
+        os.path.join(SCRIPT_DIR, '..', 'vectors_livi.csv'),
+        os.path.join(SCRIPT_DIR, 'vectors_livi.csv'),
+    ]
+    livi_path = None
+    for p in livi_paths:
+        if os.path.exists(p):
+            livi_path = p
+            break
+
+    if not livi_path:
+        logging.info("No LIVI vectors file found, fusion will use CoverHunter-only")
+        livi_embeddings_matrix = None
+        livi_video_ids.clear()
+        livi_vid_to_idx.clear()
+        return
+
+    logging.info(f"Loading LIVI embeddings from {livi_path}...")
+    vids = []
+    embs = []
+    with open(livi_path, 'r') as f:
+        header = f.readline()
+        for line in f:
+            parts = line.strip().split(',', 1)
+            if len(parts) != 2:
+                continue
+            vid = parts[0]
+            vec_str = parts[1].strip('"').strip('[]')
+            try:
+                vec = np.array([float(x) for x in vec_str.split()])
+                if len(vec) == 768:
+                    vids.append(vid)
+                    embs.append(vec)
+            except Exception:
+                continue
+
+    if not embs:
+        logging.info("LIVI vectors file was empty")
+        livi_embeddings_matrix = None
+        livi_video_ids.clear()
+        livi_vid_to_idx.clear()
+        return
+
+    livi_video_ids.clear()
+    livi_video_ids.extend(vids)
+
+    mat = np.array(embs, dtype=np.float32)
+    norms = np.linalg.norm(mat, axis=1, keepdims=True)
+    norms = np.where(norms == 0, 1, norms)
+    livi_embeddings_matrix = mat / norms
+
+    livi_vid_to_idx = {v: i for i, v in enumerate(livi_video_ids)}
+    logging.info(f"Loaded {len(livi_video_ids)} LIVI embeddings (768-dim)")
+
+
 def load_database():
     """Load the CoverHunter embeddings database."""
     global embeddings_matrix, video_ids, video_metadata, embedding_hashes
@@ -370,9 +439,44 @@ def load_database():
     # Compute initial stats (including dup_track_ids)
     _recompute_stats()
 
+    # Load LIVI vectors for score fusion
+    load_livi_vectors()
+
+
+def _compute_fused_similarities(query_idx):
+    """Compute fused similarity scores for a query (by CH index).
+
+    Returns (N,) array of fused scores for all songs in the database.
+    """
+    ch_sims = embeddings_matrix[query_idx] @ embeddings_matrix.T  # (N,)
+
+    if livi_embeddings_matrix is None or len(livi_video_ids) == 0:
+        return ch_sims
+
+    query_vid = video_ids[query_idx]
+    query_livi_idx = livi_vid_to_idx.get(query_vid)
+
+    if query_livi_idx is None:
+        # Query has no LIVI embedding — fall back to CH-only
+        return ch_sims
+
+    query_livi = livi_embeddings_matrix[query_livi_idx]  # (768,)
+    fused = np.full_like(ch_sims, 0.0)
+
+    for i, vid in enumerate(video_ids):
+        li = livi_vid_to_idx.get(vid)
+        if li is not None:
+            livi_sim = float(query_livi @ livi_embeddings_matrix[li])
+            fused[i] = FUSION_WEIGHT_CH * ch_sims[i] + FUSION_WEIGHT_LIVI * livi_sim
+        else:
+            # No LIVI embedding for this song — CH-only (renormalize to weight 1.0)
+            fused[i] = ch_sims[i]
+
+    return fused
+
 
 def compute_precision_at_1():
-    """Compute Precision@1 using the in-memory cover_map."""
+    """Compute Precision@1 using the in-memory cover_map (with fusion if available)."""
     global db_stats
 
     start_time = time.time()
@@ -395,11 +499,18 @@ def compute_precision_at_1():
         logging.info("No evaluable songs for P@1")
         return
 
+    use_fusion = livi_embeddings_matrix is not None and len(livi_video_ids) > 0
+
     hits = 0
     for vid, covers in eval_songs:
         query_idx = vid_to_idx[vid]
         cover_idxs = set(vid_to_idx[c] for c in covers)
-        sims = embeddings_matrix[query_idx] @ embeddings_matrix.T
+
+        if use_fusion:
+            sims = _compute_fused_similarities(query_idx)
+        else:
+            sims = embeddings_matrix[query_idx] @ embeddings_matrix.T
+
         sims[query_idx] = -2
         nn_idx = int(np.argmax(sims))
         if nn_idx in cover_idxs:
@@ -408,20 +519,22 @@ def compute_precision_at_1():
     elapsed = time.time() - start_time
     n = len(eval_songs)
     p_at_1 = hits / n
-    # Standard error for proportion: SE = sqrt(p * (1-p) / n)
     se = np.sqrt(p_at_1 * (1 - p_at_1) / n)
+    model_name = 'CoverHunter+LIVI' if use_fusion else 'CoverHunter'
     db_stats['precision_at_1'] = round(p_at_1, 4)
     db_stats['precision_at_1_se'] = round(se, 4)
     db_stats['precision_at_1_hits'] = hits
     db_stats['precision_at_1_time'] = round(elapsed, 2)
     db_stats['evaluable_songs'] = n
-    db_stats['model_name'] = 'CoverHunter'
-    logging.info(f"Precision@1: {hits}/{n} = {p_at_1:.2%} ± {se:.2%} ({elapsed:.2f}s)")
+    db_stats['model_name'] = model_name
+    livi_coverage = len(livi_video_ids)
+    db_stats['livi_coverage'] = livi_coverage
+    logging.info(f"Precision@1 ({model_name}): {hits}/{n} = {p_at_1:.2%} ± {se:.2%} ({elapsed:.2f}s, LIVI coverage: {livi_coverage})")
 
 
 def init_model():
-    """Initialize the CoverHunter model."""
-    global model, device
+    """Initialize the CoverHunter model and (optionally) the LIVI model."""
+    global model, device, livi_model, whisper_encoder
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     logging.info(f"Using device: {device}")
@@ -439,26 +552,50 @@ def init_model():
     model = load_model(checkpoint_dir, device=str(device))
     logging.info("CoverHunter model loaded")
 
+    # LIVI model (optional — gracefully skip if checkpoint missing)
+    livi_checkpoint_paths = [
+        '/app/data/livi_checkpoint/livi.pth',
+        os.path.join(SCRIPT_DIR, '..', 'livi_checkpoint', 'livi.pth'),
+        '/tmp/LIVI/src/livi/apps/audio_encoder/checkpoints/LIVI/livi.pth',
+    ]
+    livi_checkpoint = None
+    for p in livi_checkpoint_paths:
+        if os.path.exists(p):
+            livi_checkpoint = p
+            break
+
+    if livi_checkpoint:
+        try:
+            from livi_model import init_livi_model
+            livi_model, whisper_encoder = init_livi_model(livi_checkpoint, device)
+            logging.info("LIVI model loaded for score fusion")
+        except Exception as e:
+            logging.warning(f"Failed to load LIVI model: {e}")
+            livi_model = None
+            whisper_encoder = None
+    else:
+        logging.info("LIVI checkpoint not found, running CoverHunter-only mode")
+
 
 def compute_embedding_for_video(youtube_id, title=None, channel=None, yt_metadata=None):
     """
-    Compute CoverHunter embedding for a YouTube video via iTunes preview.
+    Compute CoverHunter (and optionally LIVI) embedding for a YouTube video via iTunes preview.
 
-    Returns: (embedding, track_id, error_msg)
+    Returns: (ch_embedding, livi_embedding_or_None, track_id, error_msg)
     """
     if title is None:
         title = get_youtube_title(youtube_id)
 
     if not title:
-        return None, None, 'Failed to get YouTube title'
+        return None, None, None, 'Failed to get YouTube title'
 
     # Search iTunes
     try:
         track_info, track_id = smart_search_itunes(youtube_id, title, channel=channel, yt_metadata=yt_metadata)
     except ITunesRateLimitError:
-        return None, None, 'iTunes rate limited'
+        return None, None, None, 'iTunes rate limited'
     if not track_info or not track_info.get('previewUrl'):
-        return None, None, 'No iTunes preview found'
+        return None, None, None, 'No iTunes preview found'
 
     preview_url = track_info['previewUrl']
 
@@ -469,19 +606,28 @@ def compute_embedding_for_video(youtube_id, title=None, channel=None, yt_metadat
 
     try:
         if not download_preview(preview_url, m4a_path):
-            return None, track_id, 'Failed to download preview'
+            return None, None, track_id, 'Failed to download preview'
 
         if not convert_to_wav(m4a_path, wav_path, sample_rate=16000):
-            return None, track_id, 'Failed to convert to WAV'
+            return None, None, track_id, 'Failed to convert to WAV'
 
         signal = load_audio(wav_path, sample_rate=16000)
         cqt = compute_cqt_features(signal, sample_rate=16000, hop_size=0.04, mean_size=3)
-        embedding = compute_embedding(model, cqt, device=str(device))
+        ch_embedding = compute_embedding(model, cqt, device=str(device))
 
-        return embedding, track_id, None
+        # Compute LIVI embedding from the same WAV (if model loaded)
+        livi_emb = None
+        if livi_model is not None and whisper_encoder is not None:
+            try:
+                from livi_model import compute_livi_embedding
+                livi_emb = compute_livi_embedding(livi_model, whisper_encoder, wav_path, device)
+            except Exception as e:
+                logging.warning(f"LIVI embedding failed for {youtube_id}: {e}")
+
+        return ch_embedding, livi_emb, track_id, None
 
     except Exception as e:
-        return None, track_id, str(e)
+        return None, None, track_id, str(e)
 
     finally:
         for path in [m4a_path, wav_path]:
@@ -590,6 +736,7 @@ def _recompute_stats():
         'tried': tried,
         'no_itunes_match': no_itunes,
         'removed_duplicates': removed_count,
+        'livi_coverage': len(livi_video_ids),
     })
 
     # Remove stale crawl progress (no update for 5 minutes)
@@ -610,7 +757,7 @@ def _stats_timer():
 
 def remove_from_database(youtube_id):
     """Remove a song from the in-memory database (e.g., when re-crawl finds artist mismatch)."""
-    global embeddings_matrix
+    global embeddings_matrix, livi_embeddings_matrix
 
     with db_lock:
         if youtube_id not in video_ids:
@@ -625,6 +772,15 @@ def remove_from_database(youtube_id):
             global _dup_cache_dirty
             _dup_cache_dirty = True
 
+        # Remove from LIVI index
+        li = livi_vid_to_idx.pop(youtube_id, None)
+        if li is not None and livi_embeddings_matrix is not None:
+            livi_video_ids.pop(li)
+            livi_embeddings_matrix = np.delete(livi_embeddings_matrix, li, axis=0)
+            # Rebuild index after deletion
+            for i, v in enumerate(livi_video_ids):
+                livi_vid_to_idx[v] = i
+
     # Persist removal to disk so it survives restarts
     removed_path = '/app/data/removed.txt' if os.path.isdir('/app/data') else 'removed.txt'
     try:
@@ -638,7 +794,7 @@ def remove_from_database(youtube_id):
 
 def batch_remove_from_database(ids_to_remove):
     """Remove multiple songs from the in-memory database in one batch."""
-    global embeddings_matrix, _dup_cache_dirty
+    global embeddings_matrix, _dup_cache_dirty, livi_embeddings_matrix
 
     removed = []
     with db_lock:
@@ -664,6 +820,21 @@ def batch_remove_from_database(ids_to_remove):
                 track_ids.pop(vid)
                 _dup_cache_dirty = True
 
+        # Remove from LIVI index (batch)
+        livi_indices_to_delete = []
+        for vid in removed:
+            li = livi_vid_to_idx.pop(vid, None)
+            if li is not None:
+                livi_indices_to_delete.append(li)
+        if livi_indices_to_delete and livi_embeddings_matrix is not None:
+            for li in sorted(livi_indices_to_delete, reverse=True):
+                livi_video_ids.pop(li)
+            livi_embeddings_matrix = np.delete(livi_embeddings_matrix, livi_indices_to_delete, axis=0)
+            # Rebuild index
+            livi_vid_to_idx.clear()
+            for i, v in enumerate(livi_video_ids):
+                livi_vid_to_idx[v] = i
+
     # Persist removals to disk
     removed_path = '/app/data/removed.txt' if os.path.isdir('/app/data') else 'removed.txt'
     try:
@@ -677,12 +848,12 @@ def batch_remove_from_database(ids_to_remove):
     return removed
 
 
-def add_embedding_to_database(youtube_id, embedding, track_id=None, force=False):
+def add_embedding_to_database(youtube_id, embedding, track_id=None, force=False, livi_embedding=None):
     """
     Add a new embedding to the in-memory database and persistent storage.
     Called asynchronously after returning search results.
     """
-    global embeddings_matrix, _dup_cache_dirty
+    global embeddings_matrix, _dup_cache_dirty, livi_embeddings_matrix
 
     # Normalize embedding
     embedding = embedding / (np.linalg.norm(embedding) + 1e-8)
@@ -760,6 +931,34 @@ def add_embedding_to_database(youtube_id, embedding, track_id=None, force=False)
             json.dump(existing, f)
         os.replace(tmp_path, track_ids_path)
 
+    # Persist LIVI embedding (if provided)
+    if livi_embedding is not None:
+        livi_emb_norm = livi_embedding / (np.linalg.norm(livi_embedding) + 1e-8)
+        livi_emb_norm = livi_emb_norm.astype(np.float32)
+
+        with db_lock:
+            existing_livi_idx = livi_vid_to_idx.get(youtube_id)
+            if existing_livi_idx is not None:
+                livi_embeddings_matrix[existing_livi_idx] = livi_emb_norm
+            else:
+                livi_video_ids.append(youtube_id)
+                livi_vid_to_idx[youtube_id] = len(livi_video_ids) - 1
+                if livi_embeddings_matrix is not None:
+                    livi_embeddings_matrix = np.vstack([livi_embeddings_matrix, livi_emb_norm.reshape(1, -1)])
+                else:
+                    livi_embeddings_matrix = livi_emb_norm.reshape(1, -1)
+
+        # Append to vectors_livi.csv
+        persistent_livi = '/app/data/vectors_livi.csv'
+        local_livi = os.path.join(SCRIPT_DIR, '..', 'vectors_livi.csv')
+        livi_path = persistent_livi if os.path.exists('/app/data') else local_livi
+        write_header = not os.path.exists(livi_path) or os.path.getsize(livi_path) == 0
+        livi_str = ' '.join(f'{x:.8f}' for x in livi_emb_norm)
+        with open(livi_path, 'a') as f:
+            if write_header:
+                f.write('youtube_id,embeddings\n')
+            f.write(f'{youtube_id},"[ {livi_str} ]"\n')
+
     # Recompute Precision@1 every 100 songs (takes ~15s per computation)
     if db_stats['total_songs'] % 100 == 0:
         compute_precision_at_1()
@@ -770,22 +969,41 @@ def add_embedding_to_database(youtube_id, embedding, track_id=None, force=False)
     check_data_regen()
 
 
-def async_add_embedding(youtube_id, embedding, track_id=None, force=False):
+def async_add_embedding(youtube_id, embedding, track_id=None, force=False, livi_embedding=None):
     """Trigger async database update in background thread."""
     thread = threading.Thread(
         target=add_embedding_to_database,
-        args=(youtube_id, embedding, track_id, force),
+        args=(youtube_id, embedding, track_id, force, livi_embedding),
         daemon=True
     )
     thread.start()
 
 
-def find_similar(query_embedding, top_k=5):
-    """Find top-k most similar songs to query embedding."""
+def find_similar(query_embedding, top_k=5, query_livi_embedding=None):
+    """Find top-k most similar songs to query embedding (with optional LIVI fusion)."""
     query = query_embedding / (np.linalg.norm(query_embedding) + 1e-8)
     query = query.astype(np.float32)
 
-    similarities = embeddings_matrix @ query
+    ch_sims = embeddings_matrix @ query  # (N,)
+
+    # Score fusion with LIVI
+    if (query_livi_embedding is not None
+            and livi_embeddings_matrix is not None
+            and len(livi_video_ids) > 0):
+        q_livi = query_livi_embedding / (np.linalg.norm(query_livi_embedding) + 1e-8)
+        q_livi = q_livi.astype(np.float32)
+        similarities = np.empty_like(ch_sims)
+        # Batch compute LIVI sims for songs that have LIVI embeddings
+        livi_sims = livi_embeddings_matrix @ q_livi  # (M,)
+        for i, vid in enumerate(video_ids):
+            li = livi_vid_to_idx.get(vid)
+            if li is not None:
+                similarities[i] = FUSION_WEIGHT_CH * ch_sims[i] + FUSION_WEIGHT_LIVI * livi_sims[li]
+            else:
+                similarities[i] = ch_sims[i]
+    else:
+        similarities = ch_sims
+
     top_indices = np.argsort(similarities)[::-1][:top_k]
 
     results = []
@@ -909,16 +1127,21 @@ def api_search():
     force = data.get('force', False)
 
     # Check if video is already in database
+    query_livi_emb = None  # LIVI embedding for fusion at search time
     if youtube_id in video_ids and not force:
         idx = video_ids.index(youtube_id)
         embedding = embeddings_matrix[idx]
         query_track_id = track_ids.get(youtube_id)
         query_hash = embedding_hashes.get(youtube_id, '')
         in_database = True
+        # Look up cached LIVI embedding
+        li = livi_vid_to_idx.get(youtube_id)
+        if li is not None and livi_embeddings_matrix is not None:
+            query_livi_emb = livi_embeddings_matrix[li]
     else:
         # Compute embedding on-the-fly via iTunes preview
         raw_channel = yt_metadata.get('channel', '') if yt_metadata else ''
-        embedding, query_track_id, error_msg = compute_embedding_for_video(youtube_id, title, channel=raw_channel, yt_metadata=yt_metadata)
+        embedding, livi_emb, query_track_id, error_msg = compute_embedding_for_video(youtube_id, title, channel=raw_channel, yt_metadata=yt_metadata)
         if embedding is None:
             # If force re-crawl failed, remove the old (bad) entry
             if force and youtube_id in video_ids:
@@ -931,10 +1154,12 @@ def api_search():
                 'database_size': len(video_ids),
             }), status_code
         query_hash = compute_embedding_hash(embedding)
+        query_livi_emb = livi_emb
         in_database = False
 
         # Async add to database for future searches
-        async_add_embedding(youtube_id, embedding.copy(), query_track_id, force=force)
+        async_add_embedding(youtube_id, embedding.copy(), query_track_id, force=force,
+                            livi_embedding=livi_emb.copy() if livi_emb is not None else None)
 
         # Track non-Discogs searches
         if youtube_id not in clique_map:
@@ -958,7 +1183,7 @@ def api_search():
             preview_url = itunes_results[0].get('previewUrl', '')
 
     # Find similar songs
-    similar = find_similar(embedding, top_k + 5)
+    similar = find_similar(embedding, top_k + 5, query_livi_embedding=query_livi_emb)
 
     # Filter out query video
     similar = [r for r in similar if r['youtube_id'] != youtube_id][:top_k]

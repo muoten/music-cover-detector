@@ -18,17 +18,26 @@ RUN pip install --no-cache-dir \
     scikit-learn \
     scipy \
     tqdm \
-    umap-learn
+    umap-learn \
+    transformers \
+    einops \
+    timm
 
 WORKDIR /app
 
 # Copy API code and model
 COPY discogs-coverhunter-itunes/api.py .
 COPY discogs-coverhunter-itunes/pipeline.py .
+COPY discogs-coverhunter-itunes/livi_model.py .
 COPY entrypoint.sh .
 COPY crawl_songs.py .
 COPY update_data.py .
 COPY discogs-coverhunter-itunes/model/ ./model/
+
+# Pre-download Whisper model so first startup isn't slow
+RUN python -c "from transformers import WhisperModel, WhisperFeatureExtractor; \
+    WhisperModel.from_pretrained('openai/whisper-large-v3-turbo'); \
+    WhisperFeatureExtractor.from_pretrained('openai/whisper-large-v3-turbo')"
 
 # Copy static files (web UI) — symlink docs->static so update_data.py writes to the right place
 COPY docs/ ./static/
