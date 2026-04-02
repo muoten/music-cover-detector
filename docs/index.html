@@ -1839,8 +1839,15 @@
                     songsTooltip += `\nNo iTunes match: ${noItunes.toLocaleString()}`;
                     songsTooltip += `\nDuplicated song (re-uploads removed): ${removedDups.toLocaleString()}`;
                     songsTooltip += `\nIndexed: ${s.total_songs.toLocaleString()} (${model})`;
+                    if (s.livi_coverage > 0) {
+                        songsTooltip += `\nLIVI embeddings: ${s.livi_coverage.toLocaleString()}/${s.total_songs.toLocaleString()}`;
+                    }
                     const cliques = s.cliques || '?';
                     let p1Tooltip = `P@1: ${hits}/${evalN} hits in ${compTime}\n${evalN.toLocaleString()} of ${s.total_songs.toLocaleString()} songs are evaluable (have both clique + iTunes track ID)\n${typeof cliques === 'number' ? cliques.toLocaleString() : cliques} cliques (unique compositions)`;
+                    if (s.livi_coverage > 0) {
+                        const liviPct = (s.livi_coverage / s.total_songs * 100).toFixed(1);
+                        p1Tooltip += `\nLIVI fusion: ${s.livi_coverage.toLocaleString()}/${s.total_songs.toLocaleString()} songs (${liviPct}%) \u00b7 weights CH=0.70 LIVI=0.30`;
+                    }
                     if (s.crawl_progress && s.crawl_progress.phase !== 'done') {
                         const cp = s.crawl_progress;
                         const etaStr = cp.rate_per_hour > 0 ? (cp.eta_hours < 1 ? Math.round(cp.eta_hours * 60) + 'm' : cp.eta_hours.toFixed(1) + 'h') : 'starting...';
@@ -1869,7 +1876,7 @@
                         p1Tooltip += `\nCrawl: verifying ${verifyStr} \u00b7 dedup ${dedupStr} \u00b7 new ${newStr}${rateStr}`;
                         p1Tooltip += `\nVerifying = getting iTunes match for old songs \u00b7 Dedup = resolving shared track IDs \u00b7 New = indexing from Discogs`;
                     }
-                    let html = `<strong>Database:</strong> <span title="${songsTooltip}" style="cursor:help; border-bottom:1px dotted #666;">${s.total_songs.toLocaleString()} songs${discogs}</span>. <span title="${p1Tooltip}" style="cursor:help; border-bottom:1px dotted #666;">Precision@1=${p1}${se} on ${evalN.toLocaleString()} evaluable</span>`;
+                    let html = `<strong>Database:</strong> <span title="${songsTooltip}" style="cursor:help; border-bottom:1px dotted #666;">${s.total_songs.toLocaleString()} songs${discogs}</span>. <span title="${p1Tooltip}" style="cursor:help; border-bottom:1px dotted #666;">Precision@1=${p1}${se} on ${evalN.toLocaleString()} evaluable (${model})</span>`;
                     if (collisions > 0) {
                         const collisionTooltip = `${collisions.toLocaleString()} songs produce an identical embedding as another song — different tracks the model can't distinguish`;
                         html += `. <span title="${collisionTooltip}" style="color:#757575; cursor:help; border-bottom:1px dotted #757575;">${collisions.toLocaleString()} collisions</span>`;
