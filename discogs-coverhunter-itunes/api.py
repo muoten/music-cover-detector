@@ -552,29 +552,34 @@ def init_model():
     model = load_model(checkpoint_dir, device=str(device))
     logging.info("CoverHunter model loaded")
 
-    # LIVI model (optional — gracefully skip if checkpoint missing)
-    livi_checkpoint_paths = [
-        '/app/data/livi_checkpoint/livi.pth',
-        os.path.join(SCRIPT_DIR, '..', 'livi_checkpoint', 'livi.pth'),
-        '/tmp/LIVI/src/livi/apps/audio_encoder/checkpoints/LIVI/livi.pth',
-    ]
-    livi_checkpoint = None
-    for p in livi_checkpoint_paths:
-        if os.path.exists(p):
-            livi_checkpoint = p
-            break
+    # LIVI inference model (optional — needs ~1.5GB extra RAM for Whisper + LIVI)
+    # Set LIVI_INFERENCE=1 to enable computing LIVI embeddings for new songs.
+    # Without it, pre-computed LIVI vectors are still used for fusion at search time.
+    if os.environ.get('LIVI_INFERENCE', '').strip() == '1':
+        livi_checkpoint_paths = [
+            '/app/data/livi_checkpoint/livi.pth',
+            os.path.join(SCRIPT_DIR, '..', 'livi_checkpoint', 'livi.pth'),
+            '/tmp/LIVI/src/livi/apps/audio_encoder/checkpoints/LIVI/livi.pth',
+        ]
+        livi_checkpoint = None
+        for p in livi_checkpoint_paths:
+            if os.path.exists(p):
+                livi_checkpoint = p
+                break
 
-    if livi_checkpoint:
-        try:
-            from livi_model import init_livi_model
-            livi_model, whisper_encoder = init_livi_model(livi_checkpoint, device)
-            logging.info("LIVI model loaded for score fusion")
-        except Exception as e:
-            logging.warning(f"Failed to load LIVI model: {e}")
-            livi_model = None
-            whisper_encoder = None
+        if livi_checkpoint:
+            try:
+                from livi_model import init_livi_model
+                livi_model, whisper_encoder = init_livi_model(livi_checkpoint, device)
+                logging.info("LIVI model loaded for score fusion + new song inference")
+            except Exception as e:
+                logging.warning(f"Failed to load LIVI model: {e}")
+                livi_model = None
+                whisper_encoder = None
+        else:
+            logging.info("LIVI checkpoint not found, running CoverHunter-only mode")
     else:
-        logging.info("LIVI checkpoint not found, running CoverHunter-only mode")
+        logging.info("LIVI inference disabled (set LIVI_INFERENCE=1 to enable). Pre-computed vectors will be used for fusion.")
 
 
 def compute_embedding_for_video(youtube_id, title=None, channel=None, yt_metadata=None):
