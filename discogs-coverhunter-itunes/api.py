@@ -150,7 +150,6 @@ def load_clique_map():
             db_stats['discogs_songs'] = discogs_songs
             logging.info(f"Songs from Discogs: {discogs_songs}/{len(video_ids)}")
             build_cover_map()
-            compute_precision_at_1()
             return
 
     logging.info("No clique map found")
@@ -1247,6 +1246,8 @@ def reload_database():
         load_database()
         load_clique_map()
         check_data_regen()
+        # Recompute P@1 in background so reload returns immediately
+        threading.Thread(target=compute_precision_at_1, daemon=True).start()
         return jsonify({
             'status': 'ok',
             'embeddings_count': len(video_ids),
@@ -1455,6 +1456,10 @@ if __name__ == '__main__':
     # Regenerate data.json at startup (in background, non-blocking)
     logging.info("Triggering data.json regeneration at startup...")
     _run_data_regen()
+
+    # Compute P@1 in background so Flask starts serving immediately
+    logging.info("Starting P@1 computation in background...")
+    threading.Thread(target=compute_precision_at_1, daemon=True).start()
 
     # Start periodic stats recomputation
     threading.Thread(target=_stats_timer, daemon=True).start()
