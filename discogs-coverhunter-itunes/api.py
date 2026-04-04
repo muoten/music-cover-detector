@@ -469,8 +469,8 @@ def _compute_fused_similarities(query_idx):
             livi_sim = float(query_livi @ livi_embeddings_matrix[li])
             fused[i] = FUSION_WEIGHT_CH * ch_sims[i] + FUSION_WEIGHT_LIVI * livi_sim
         else:
-            # No LIVI embedding for this song — CH-only (renormalize to weight 1.0)
-            fused[i] = ch_sims[i]
+            # No LIVI embedding — scale CH-only to same range as fused scores
+            fused[i] = FUSION_WEIGHT_CH * ch_sims[i]
 
     return fused
 
@@ -1005,7 +1005,7 @@ def find_similar(query_embedding, top_k=5, query_livi_embedding=None):
             if li is not None:
                 similarities[i] = FUSION_WEIGHT_CH * ch_sims[i] + FUSION_WEIGHT_LIVI * livi_sims[li]
             else:
-                similarities[i] = ch_sims[i]
+                similarities[i] = FUSION_WEIGHT_CH * ch_sims[i]
     else:
         similarities = ch_sims
 
