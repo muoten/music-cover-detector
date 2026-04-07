@@ -604,7 +604,7 @@
                 <div class="dataset-search-row">
                     <select class="dataset-select" id="dataset-select" onchange="switchDataset(this.value)">
                         <option value="" disabled>Select model</option>
-                        <option value="vinet">VINet (512-dim)</option>
+                        <option value="livi">LIVI (768-dim)</option>
                         <option value="coverhunter" selected>CoverHunter (128-dim)</option>
                     </select>
                     <div class="search-container">
@@ -764,14 +764,14 @@
         let coverLinks = {};
         let verifiedCovers = {};
         let currentMode = 'addsong';
-        let currentDataset = 'coverhunter';  // 'vinet' or 'coverhunter'
+        let currentDataset = 'coverhunter';  // 'livi' or 'coverhunter'
         let selectedSongId = null;
         let plotInitialized = false;
 
         // Data caches - keyed by dataset to allow quick switching
         let dataCache = {
             coverhunter: { clusterData: null, coversData: null, coverLinks: null, verifiedCovers: null, metadata: null },
-            vinet: { clusterData: null, coversData: null, coverLinks: null, verifiedCovers: null, metadata: null }
+            livi: { clusterData: null, coversData: null, coverLinks: null, verifiedCovers: null, metadata: null }
         };
 
         // Build genre pills
@@ -945,10 +945,10 @@
         });
 
         function getDataFile(baseName) {
-            // Returns suffixed filename for vinet dataset
-            if (currentDataset === 'vinet') {
+            // Returns suffixed filename for livi dataset
+            if (currentDataset === 'livi') {
                 const [name, ext] = baseName.split('.');
-                return `${name}_vinet.${ext}`;
+                return `${name}_livi.${ext}`;
             }
             return baseName;
         }
@@ -1824,7 +1824,7 @@
                 if (data.stats) {
                     const s = data.stats;
                     lastHealthStats = s;
-                    const model = s.model_name || 'VINet';
+                    const model = s.model_name || 'CoverHunter';
                     const p1 = s.precision_at_1 !== undefined ? (s.precision_at_1 * 100).toFixed(1) + '%' : '?';
                     const se = s.precision_at_1_se !== undefined ? '\u00b1' + (s.precision_at_1_se * 100).toFixed(1) + '%' : '';
                     const hits = s.precision_at_1_hits || '?';
