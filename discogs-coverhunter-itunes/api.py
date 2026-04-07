@@ -474,6 +474,34 @@ def _compute_fused_similarities(query_idx):
     return fused
 
 
+_P1_CACHE_PATH = '/app/data/p1_cache.json' if os.path.isdir('/app/data') else os.path.join(SCRIPT_DIR, 'p1_cache.json')
+
+
+def _load_p1_cache():
+    """Load cached P@1 stats from disk into db_stats."""
+    try:
+        with open(_P1_CACHE_PATH) as f:
+            cached = json.load(f)
+        for key in ('precision_at_1', 'precision_at_1_se', 'precision_at_1_hits',
+                     'precision_at_1_time', 'evaluable_songs', 'model_name', 'livi_coverage'):
+            if key in cached:
+                db_stats[key] = cached[key]
+        logging.info(f"Loaded cached P@1: {cached.get('precision_at_1', '?')} ({cached.get('model_name', '?')})")
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+
+
+def _save_p1_cache():
+    """Save current P@1 stats to disk."""
+    try:
+        cached = {k: db_stats[k] for k in ('precision_at_1', 'precision_at_1_se', 'precision_at_1_hits',
+                  'precision_at_1_time', 'evaluable_songs', 'model_name', 'livi_coverage') if k in db_stats}
+        with open(_P1_CACHE_PATH, 'w') as f:
+            json.dump(cached, f)
+    except Exception as e:
+        logging.error(f"Failed to save P@1 cache: {e}")
+
+
 def compute_precision_at_1():
     """Compute Precision@1 using the in-memory cover_map (with fusion if available)."""
     global db_stats
@@ -529,6 +557,7 @@ def compute_precision_at_1():
     livi_coverage = len(livi_video_ids)
     db_stats['livi_coverage'] = livi_coverage
     logging.info(f"Precision@1 ({model_name}): {hits}/{n} = {p_at_1:.2%} ± {se:.2%} ({elapsed:.2f}s, LIVI coverage: {livi_coverage})")
+    _save_p1_cache()
 
 
 def init_model():
@@ -1457,7 +1486,8 @@ if __name__ == '__main__':
     logging.info("Triggering data.json regeneration at startup...")
     _run_data_regen()
 
-    # Compute P@1 in background so Flask starts serving immediately
+    # Load cached P@1 so stats are available immediately, then recompute in background
+    _load_p1_cache()
     logging.info("Starting P@1 computation in background...")
     threading.Thread(target=compute_precision_at_1, daemon=True).start()
 
