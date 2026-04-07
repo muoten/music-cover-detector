@@ -945,8 +945,9 @@
         });
 
         function getDataFile(baseName) {
-            // Returns suffixed filename for livi dataset
-            if (currentDataset === 'livi') {
+            // LIVI only has cluster data; covers use CoverHunter (unsuffixed)
+            const coverFiles = ['covers_data.json', 'cover_links.json', 'verified_covers.json'];
+            if (currentDataset === 'livi' && !coverFiles.includes(baseName)) {
                 const [name, ext] = baseName.split('.');
                 return `${name}_livi.${ext}`;
             }
