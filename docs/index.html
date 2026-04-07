@@ -1029,10 +1029,18 @@
                 createPlot(data);
             } catch (error) {
                 const isGenerating = error.message.includes('404');
-                document.getElementById('plot-container').innerHTML = isGenerating
-                    ? '<div class="loading">Generating clusters... This may take a few minutes after server restart.</div>'
-                    : `<div class="loading" style="color:#f44336;">Error: ${error.message}</div>`;
-                if (isGenerating) setTimeout(() => loadData(), 30000);
+                if (isGenerating) {
+                    const name = currentDataset === 'livi' ? 'LIVI' : 'CoverHunter';
+                    document.getElementById('plot-container').innerHTML =
+                        `<div class="loading">Generating clusters for ${name} model... ` +
+                        `This may take a few minutes after server restart.<br><br>` +
+                        `Switch to <a href="#" onclick="document.getElementById('dataset-select').value='livi'; switchDataset('livi'); return false;" ` +
+                        `style="color:#64B5F6">LIVI (precomputed)</a> in the meantime.</div>`;
+                    setTimeout(() => loadData(), 30000);
+                } else {
+                    document.getElementById('plot-container').innerHTML =
+                        `<div class="loading" style="color:#f44336;">Error: ${error.message}</div>`;
+                }
             }
         }
 
