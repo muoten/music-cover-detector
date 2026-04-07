@@ -604,8 +604,8 @@
                 <div class="dataset-search-row">
                     <select class="dataset-select" id="dataset-select" onchange="switchDataset(this.value)">
                         <option value="" disabled>Select model</option>
-                        <option value="livi">LIVI (768-dim)</option>
-                        <option value="coverhunter" selected>CoverHunter (128-dim)</option>
+                        <option value="livi" selected>LIVI (768-dim)</option>
+                        <option value="coverhunter">CoverHunter (128-dim)</option>
                     </select>
                     <div class="search-container">
                         <input type="text" class="search-input" id="search-input" placeholder="🔍 Search by title or artist...">
@@ -764,7 +764,7 @@
         let coverLinks = {};
         let verifiedCovers = {};
         let currentMode = 'addsong';
-        let currentDataset = 'coverhunter';  // 'livi' or 'coverhunter'
+        let currentDataset = 'livi';  // 'livi' or 'coverhunter'
         let selectedSongId = null;
         let plotInitialized = false;
 
