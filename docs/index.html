@@ -1028,8 +1028,11 @@
 
                 createPlot(data);
             } catch (error) {
-                document.getElementById('plot-container').innerHTML =
-                    `<div class="loading" style="color:#f44336;">Error: ${error.message}</div>`;
+                const isGenerating = error.message.includes('404');
+                document.getElementById('plot-container').innerHTML = isGenerating
+                    ? '<div class="loading">Generating clusters... This may take a few minutes after server restart.</div>'
+                    : `<div class="loading" style="color:#f44336;">Error: ${error.message}</div>`;
+                if (isGenerating) setTimeout(() => loadData(), 30000);
             }
         }
 
@@ -1826,11 +1829,12 @@
                     const s = data.stats;
                     lastHealthStats = s;
                     const model = s.model_name || 'CoverHunter';
-                    const p1 = s.precision_at_1 !== undefined ? (s.precision_at_1 * 100).toFixed(1) + '%' : '?';
+                    const p1 = s.precision_at_1 !== undefined ? (s.precision_at_1 * 100).toFixed(1) + '%' : 'Computing...';
                     const se = s.precision_at_1_se !== undefined ? '\u00b1' + (s.precision_at_1_se * 100).toFixed(1) + '%' : '';
-                    const hits = s.precision_at_1_hits || '?';
-                    const evalN = s.evaluable_songs || '?';
-                    const compTime = s.precision_at_1_time !== undefined ? s.precision_at_1_time.toFixed(2) + 's' : '?';
+                    const computing = s.precision_at_1 === undefined;
+                    const hits = s.precision_at_1_hits || (computing ? '...' : '?');
+                    const evalN = s.evaluable_songs || (computing ? '...' : '?');
+                    const compTime = s.precision_at_1_time !== undefined ? s.precision_at_1_time.toFixed(2) + 's' : (computing ? '...' : '?');
                     const discogs = s.discogs_songs ? ` (${s.discogs_songs.toLocaleString()} from Discogs, ${(s.user_searches || 0).toLocaleString()} user searches)` : '';
                     const collisions = s.total_songs - s.unique_hashes;
                     const tried = s.tried || 0;
