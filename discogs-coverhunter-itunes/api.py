@@ -554,7 +554,7 @@ def compute_precision_at_1():
     db_stats['precision_at_1_time'] = round(elapsed, 2)
     db_stats['evaluable_songs'] = n
     db_stats['model_name'] = model_name
-    livi_coverage = len(livi_video_ids)
+    livi_coverage = sum(1 for v in livi_video_ids if v in vid_to_idx)
     db_stats['livi_coverage'] = livi_coverage
     logging.info(f"Precision@1 ({model_name}): {hits}/{n} = {p_at_1:.2%} ± {se:.2%} ({elapsed:.2f}s, LIVI coverage: {livi_coverage})")
     _save_p1_cache()
@@ -769,7 +769,7 @@ def _recompute_stats():
         'tried': tried,
         'no_itunes_match': no_itunes,
         'removed_duplicates': removed_count,
-        'livi_coverage': len(livi_video_ids),
+        'livi_coverage': sum(1 for v in livi_video_ids if v in vid_to_idx),
     })
 
     # Remove stale crawl progress (no update for 5 minutes)
@@ -1273,6 +1273,7 @@ def reload_database():
     """Reload the embeddings database."""
     try:
         load_database()
+        load_livi_vectors()
         load_clique_map()
         check_data_regen()
         # Recompute P@1 in background so reload returns immediately
