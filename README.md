@@ -37,7 +37,7 @@ pip install -r requirements.txt
 python discogs-coverhunter-itunes/api.py
 ```
 
-The API starts at `http://localhost:8080`. Requires `vectors.csv` (embeddings database).
+The API starts at `http://localhost:5000`. Requires `vectors.csv` (CoverHunter embeddings) and optionally `vectors_livi.csv` (LIVI embeddings for fusion).
 
 ## Crawling
 
