@@ -44,7 +44,7 @@ The API starts at `http://localhost:8080`. Requires `vectors.csv` (embeddings da
 Index new songs from the Discogs-VI-YT dataset:
 
 ```bash
-python crawl_songs.py --api http://localhost:8080 --delay 2
+python crawl_songs.py
 ```
 
 Three phases:
