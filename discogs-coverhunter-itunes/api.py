@@ -85,8 +85,8 @@ whisper_encoder = None
 livi_embeddings_matrix = None  # (M, 768) normalized, M <= N
 livi_video_ids = []             # parallel to livi_embeddings_matrix
 livi_vid_to_idx = {}            # youtube_id -> index in livi_embeddings_matrix
-FUSION_WEIGHT_CH = 0.70
-FUSION_WEIGHT_LIVI = 0.30
+FUSION_WEIGHT_CH = 0.60
+FUSION_WEIGHT_LIVI = 0.40
 
 
 def compute_embedding_hash(embedding):
