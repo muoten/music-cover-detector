@@ -242,7 +242,8 @@ def _run_data_regen():
 
 def load_livi_vectors():
     """Load pre-computed LIVI embeddings from vectors_livi.csv."""
-    global livi_embeddings_matrix, livi_video_ids, livi_vid_to_idx
+    global livi_embeddings_matrix, livi_video_ids, livi_vid_to_idx, _livi_to_ch_index
+    _livi_to_ch_index = None  # invalidate cached index
 
     livi_paths = [
         '/app/data/vectors_livi.csv',
@@ -302,7 +303,8 @@ def load_livi_vectors():
 
 def load_database():
     """Load the CoverHunter embeddings database."""
-    global embeddings_matrix, video_ids, video_metadata, embedding_hashes
+    global embeddings_matrix, video_ids, video_metadata, embedding_hashes, _livi_to_ch_index
+    _livi_to_ch_index = None  # invalidate cached index
 
     # Look for vectors file
     persistent_path = '/app/data/vectors.csv'
@@ -442,10 +444,35 @@ def load_database():
     load_livi_vectors()
 
 
+def _build_livi_index():
+    """Build an index mapping CH video_ids positions to LIVI matrix rows.
+
+    Returns an array of length len(video_ids) where entry i is the LIVI matrix
+    row index for video_ids[i], or -1 if no LIVI embedding exists.
+    """
+    idx = np.full(len(video_ids), -1, dtype=np.int64)
+    for i, vid in enumerate(video_ids):
+        li = livi_vid_to_idx.get(vid)
+        if li is not None:
+            idx[i] = li
+    return idx
+
+# Lazily built and invalidated on reload
+_livi_to_ch_index = None
+
+
+def _get_livi_index():
+    global _livi_to_ch_index
+    if _livi_to_ch_index is None:
+        _livi_to_ch_index = _build_livi_index()
+    return _livi_to_ch_index
+
+
 def _compute_fused_similarities(query_idx):
     """Compute fused similarity scores for a query (by CH index).
 
     Returns (N,) array of fused scores for all songs in the database.
+    Vectorized — no Python loops over 100K songs.
     """
     ch_sims = embeddings_matrix[query_idx] @ embeddings_matrix.T  # (N,)
 
@@ -456,20 +483,20 @@ def _compute_fused_similarities(query_idx):
     query_livi_idx = livi_vid_to_idx.get(query_vid)
 
     if query_livi_idx is None:
-        # Query has no LIVI embedding — fall back to CH-only
         return ch_sims
 
-    query_livi = livi_embeddings_matrix[query_livi_idx]  # (768,)
-    fused = np.full_like(ch_sims, 0.0)
+    livi_idx = _get_livi_index()
+    has_livi = livi_idx >= 0
 
-    for i, vid in enumerate(video_ids):
-        li = livi_vid_to_idx.get(vid)
-        if li is not None:
-            livi_sim = float(query_livi @ livi_embeddings_matrix[li])
-            fused[i] = FUSION_WEIGHT_CH * ch_sims[i] + FUSION_WEIGHT_LIVI * livi_sim
-        else:
-            # No LIVI embedding — scale CH-only to same range as fused scores
-            fused[i] = FUSION_WEIGHT_CH * ch_sims[i]
+    # Vectorized LIVI similarities for all songs that have LIVI embeddings
+    query_livi = livi_embeddings_matrix[query_livi_idx]  # (768,)
+    livi_sims = np.zeros(len(video_ids), dtype=np.float32)
+    if has_livi.any():
+        livi_sims[has_livi] = livi_embeddings_matrix[livi_idx[has_livi]] @ query_livi
+
+    fused = np.where(has_livi,
+                     FUSION_WEIGHT_CH * ch_sims + FUSION_WEIGHT_LIVI * livi_sims,
+                     FUSION_WEIGHT_CH * ch_sims)
 
     return fused
 
@@ -1026,15 +1053,15 @@ def find_similar(query_embedding, top_k=5, query_livi_embedding=None):
             and len(livi_video_ids) > 0):
         q_livi = query_livi_embedding / (np.linalg.norm(query_livi_embedding) + 1e-8)
         q_livi = q_livi.astype(np.float32)
-        similarities = np.empty_like(ch_sims)
-        # Batch compute LIVI sims for songs that have LIVI embeddings
-        livi_sims = livi_embeddings_matrix @ q_livi  # (M,)
-        for i, vid in enumerate(video_ids):
-            li = livi_vid_to_idx.get(vid)
-            if li is not None:
-                similarities[i] = FUSION_WEIGHT_CH * ch_sims[i] + FUSION_WEIGHT_LIVI * livi_sims[li]
-            else:
-                similarities[i] = FUSION_WEIGHT_CH * ch_sims[i]
+        # Vectorized LIVI fusion
+        livi_idx = _get_livi_index()
+        has_livi = livi_idx >= 0
+        livi_sims = np.zeros(len(video_ids), dtype=np.float32)
+        if has_livi.any():
+            livi_sims[has_livi] = livi_embeddings_matrix[livi_idx[has_livi]] @ q_livi
+        similarities = np.where(has_livi,
+                                FUSION_WEIGHT_CH * ch_sims + FUSION_WEIGHT_LIVI * livi_sims,
+                                FUSION_WEIGHT_CH * ch_sims)
     else:
         similarities = ch_sims
 
