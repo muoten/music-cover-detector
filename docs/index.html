@@ -1856,7 +1856,7 @@
                     let p1Tooltip = `P@1: ${hits}/${evalN} hits in ${compTime}\n${evalN.toLocaleString()} of ${s.total_songs.toLocaleString()} songs are evaluable (have both clique + iTunes track ID)\n${typeof cliques === 'number' ? cliques.toLocaleString() : cliques} cliques (unique compositions)`;
                     if (s.livi_coverage > 0) {
                         const liviPct = (s.livi_coverage / s.total_songs * 100).toFixed(1);
-                        p1Tooltip += `\nLIVI fusion: ${s.livi_coverage.toLocaleString()}/${s.total_songs.toLocaleString()} songs (${liviPct}%) \u00b7 weights CH=0.70 LIVI=0.30`;
+                        p1Tooltip += `\nLIVI fusion: ${s.livi_coverage.toLocaleString()}/${s.total_songs.toLocaleString()} songs (${liviPct}%) \u00b7 weights CH=0.60 LIVI=0.40`;
                     }
                     if (s.crawl_progress && s.crawl_progress.phase !== 'done') {
                         const cp = s.crawl_progress;
