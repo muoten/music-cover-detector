@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Music Understanding - Cover Detector</title>
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Roboto', sans-serif; background: #f5f5f5; color: #333; min-height: 100vh; }
+header { background: white; padding: 15px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+h1 { font-size: 1.8em; font-weight: 700; color: #e62117; margin-bottom: 4px; }
+h1 a { color: #e62117; text-decoration: none; }
+.subtitle { font-size: 0.85em; color: #666; }
+.back-link { font-size: 0.85em; color: #1976D2; text-decoration: none; }
+main { max-width: 800px; margin: 20px auto; padding: 0 15px; }
+.card { background: white; border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.1); padding: 20px; margin-bottom: 16px; }
+.search-area { position: relative; margin-bottom: 12px; }
+.search-input { width: 100%; padding: 12px 14px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; font-family: inherit; }
+.search-input:focus { outline: none; border-color: #1976D2; box-shadow: 0 0 0 2px rgba(25,118,210,0.15); }
+.autocomplete { position: absolute; top: 100%; left: 0; right: 0; background: white; border: 1px solid #ddd; border-top: none; border-radius: 0 0 8px 8px; max-height: 300px; overflow-y: auto; z-index: 100; box-shadow: 0 4px 12px rgba(0,0,0,0.15); display: none; }
+.autocomplete.open { display: block; }
+.ac-item { padding: 10px 14px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #f5f5f5; }
+.ac-item:hover, .ac-item.selected { background: #e3f2fd; }
+.ac-item .ac-name { font-size: 13px; }
+.ac-item .ac-name strong { color: #1976D2; }
+.ac-item .ac-tags { font-size: 11px; color: #999; }
+.ac-empty { padding: 14px; color: #999; text-align: center; font-size: 13px; }
+.constraint-input { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; margin-bottom: 10px; font-family: inherit; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
+.chip { background: #f0f0f0; border: 1px solid #ddd; border-radius: 20px; padding: 4px 14px; font-size: 12px; cursor: pointer; transition: all 0.15s; user-select: none; }
+.chip:hover { border-color: #1976D2; color: #1976D2; background: #e3f2fd; }
+.chip.active { background: #e3f2fd; border-color: #1976D2; color: #1976D2; font-weight: 500; }
+
+.ref-card { background: #fafafa; border: 1px solid #e0e0e0; border-radius: 8px; padding: 14px; margin-bottom: 16px; }
+.ref-card h3 { font-size: 1em; color: #333; margin-bottom: 6px; }
+.ref-card .meta { font-size: 0.85em; color: #666; }
+
+.tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.tag { border-radius: 4px; padding: 2px 8px; font-size: 11px; font-weight: 500; }
+.tag.key { background: #fff3e0; color: #e65100; }
+.tag.genre { background: #f3e5f5; color: #7b1fa2; }
+.tag.vocals { background: #e8f5e9; color: #2e7d32; }
+.tag.tempo { background: #e3f2fd; color: #1565c0; }
+.tag.mood { background: #fce4ec; color: #c62828; }
+.tag.instrument { background: #f5f5f5; color: #616161; border: 1px solid #e0e0e0; }
+
+.result { border: 1px solid #e0e0e0; border-radius: 8px; padding: 14px; margin-bottom: 10px; transition: box-shadow 0.15s; }
+.result:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+.result-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px; }
+.result-title { font-weight: 500; font-size: 0.95em; }
+.result-sim { background: #f5f5f5; border-radius: 4px; padding: 2px 8px; font-size: 12px; color: #999; }
+.cover-badge { background: #e8f5e9; color: #2e7d32; border-radius: 4px; padding: 2px 8px; font-size: 11px; margin-left: 8px; font-weight: 500; }
+
+.changes { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; }
+.change { font-size: 12px; background: #fafafa; border: 1px solid #eee; border-radius: 4px; padding: 2px 8px; }
+.change .from { color: #e53935; text-decoration: line-through; }
+.change .arrow { color: #999; margin: 0 3px; }
+.change .to { color: #43a047; }
+.change .added { color: #43a047; }
+.change .removed { color: #e53935; text-decoration: line-through; }
+
+.shared-chords { font-size: 11px; color: #999; margin-top: 6px; }
+.query-time { font-size: 12px; color: #999; margin-top: 12px; text-align: right; }
+.loading { text-align: center; color: #999; padding: 40px; }
+.empty { text-align: center; color: #999; padding: 30px; font-style: italic; }
+.beta { background: #fff3e0; color: #e65100; font-size: 11px; padding: 2px 8px; border-radius: 4px; font-weight: 500; vertical-align: middle; margin-left: 8px; }
+.note { font-size: 12px; color: #999; margin-top: 8px; line-height: 1.5; }
+
+@media (max-width: 600px) {
+  .search-area { flex-direction: column; }
+  .search-area select, .search-area button { width: 100%; }
+  main { padding: 0 10px; }
+  .card { padding: 14px; }
+}
+</style>
+</head>
+<body>
+
+<header>
+  <h1><a href="/">Music Cover Detector</a></h1>
+  <p class="subtitle">Music Understanding<span class="beta">BETA</span> &mdash; <a href="/" class="back-link">&larr; Back to Cover Detector</a></p>
+</header>
+
+<main>
+  <div class="card">
+    <div class="search-area">
+      <input class="search-input" id="song-search" type="text" placeholder="Type artist or song name..." autocomplete="off">
+      <div class="autocomplete" id="autocomplete"></div>
+      <input type="hidden" id="song-select" value="">
+    </div>
+    <input class="constraint-input" id="constraint" type="text" placeholder="Optional: describe what you're looking for... e.g. 'female vocals', 'different key', 'acoustic'">
+    <div class="chips" id="chips">
+      <span class="chip" data-c="different key">different key</span>
+      <span class="chip" data-c="different genre">different genre</span>
+      <span class="chip" data-c="female vocals">female vocals</span>
+      <span class="chip" data-c="male vocals">male vocals</span>
+      <span class="chip" data-c="acoustic">acoustic</span>
+      <span class="chip" data-c="piano">piano</span>
+      <span class="chip" data-c="rock">rock</span>
+      <span class="chip" data-c="jazz">jazz</span>
+      <span class="chip" data-c="classical">classical</span>
+      <span class="chip" data-c="slow">slow</span>
+      <span class="chip" data-c="sad">sad</span>
+      <span class="chip" data-c="instrumental">instrumental</span>
+    </div>
+    <p class="note">Find songs with similar composition but different style. Powered by CoverHunter embeddings + madmom chord analysis + LP-MusicCaps descriptions.</p>
+  </div>
+
+  <div id="reference"></div>
+  <div id="results"></div>
+  <div id="query-time"></div>
+</main>
+
+<script>
+let songAttrs = {};
+let songList = [];
+let selectedIdx = -1;
+// Load precomputed song attributes
+fetch('song_attributes.json').then(r => r.json()).then(data => {
+  songAttrs = data;
+  songList = Object.entries(data).map(([vid, a]) => ({
+    vid,
+    artist: a.artist || '?',
+    title: a.title || '?',
+    tags: [a.genre, a.vocals ? a.vocals + ' vocals' : null, a.key].filter(Boolean).join(', '),
+    searchText: ((a.artist||'') + ' ' + (a.title||'')).toLowerCase(),
+  })).sort((a,b) => a.artist.localeCompare(b.artist));
+  document.getElementById('song-search').placeholder = 'Search ' + songList.length + ' songs by artist or title...';
+});
+
+// Autocomplete
+const searchInput = document.getElementById('song-search');
+const acList = document.getElementById('autocomplete');
+
+searchInput.addEventListener('input', () => {
+  const q = searchInput.value.toLowerCase().trim();
+  selectedIdx = -1;
+  if (q.length < 1) { acList.classList.remove('open'); return; }
+
+  const matches = songList.filter(s => s.searchText.includes(q)).slice(0, 15);
+  if (!matches.length) {
+    acList.innerHTML = '<div class="ac-empty">No songs found</div>';
+    acList.classList.add('open');
+    return;
+  }
+
+  acList.innerHTML = matches.map((s, i) => {
+    // Highlight matching text
+    const name = s.artist + ' - ' + s.title;
+    const idx = name.toLowerCase().indexOf(q);
+    let highlighted = name;
+    if (idx >= 0) {
+      highlighted = name.slice(0, idx) + '<strong>' + name.slice(idx, idx + q.length) + '</strong>' + name.slice(idx + q.length);
+    }
+    return '<div class="ac-item" data-vid="' + s.vid + '" data-idx="' + i + '">' +
+      '<span class="ac-name">' + highlighted + '</span>' +
+      '<span class="ac-tags">' + s.tags + '</span></div>';
+  }).join('');
+  acList.classList.add('open');
+});
+
+searchInput.addEventListener('keydown', e => {
+  const items = acList.querySelectorAll('.ac-item');
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    selectedIdx = Math.min(selectedIdx + 1, items.length - 1);
+    items.forEach((el, i) => el.classList.toggle('selected', i === selectedIdx));
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    selectedIdx = Math.max(selectedIdx - 1, 0);
+    items.forEach((el, i) => el.classList.toggle('selected', i === selectedIdx));
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    if (selectedIdx >= 0 && items[selectedIdx]) {
+      selectSong(items[selectedIdx].dataset.vid);
+    } else if (items.length === 1) {
+      selectSong(items[0].dataset.vid);
+    } else if (document.getElementById('song-select').value) {
+      doQuery();
+    }
+  } else if (e.key === 'Escape') {
+    acList.classList.remove('open');
+  }
+});
+
+acList.addEventListener('click', e => {
+  const item = e.target.closest('.ac-item');
+  if (item) selectSong(item.dataset.vid);
+});
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('.search-area')) acList.classList.remove('open');
+});
+
+function selectSong(vid) {
+  const song = songList.find(s => s.vid === vid);
+  if (!song) return;
+  document.getElementById('song-select').value = vid;
+  searchInput.value = song.artist + ' - ' + song.title;
+  acList.classList.remove('open');
+  doQuery();
+}
+
+// Chips
+document.getElementById('chips').addEventListener('click', e => {
+  if (!e.target.classList.contains('chip')) return;
+  const input = document.getElementById('constraint');
+  const wasActive = e.target.classList.contains('active');
+  document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+  if (wasActive) { input.value = ''; }
+  else { e.target.classList.add('active'); input.value = e.target.dataset.c; }
+});
+document.getElementById('constraint').addEventListener('keydown', e => { if (e.key === 'Enter') doQuery(); });
+
+function doQuery() {
+  const vid = document.getElementById('song-select').value;
+  if (!vid) return;
+  const constraint = document.getElementById('constraint').value.trim();
+  const ref = songAttrs[vid];
+  if (!ref) return;
+
+  const t0 = performance.now();
+
+  // Show reference
+  document.getElementById('reference').innerHTML = renderRef(ref, constraint);
+
+  // Find similar songs using precomputed attributes
+  // Since we don't have embeddings in browser, use API endpoint
+  fetch('/api/search-attrs?vid=' + vid + (constraint ? '&constraint=' + encodeURIComponent(constraint) : '') + '&top_k=10')
+    .then(r => r.json())
+    .then(data => {
+      const elapsed = Math.round(performance.now() - t0);
+      if (data.results && data.results.length) {
+        document.getElementById('results').innerHTML = data.results.map((r, i) => renderResult(r, i, ref)).join('');
+      } else {
+        document.getElementById('results').innerHTML = '<div class="empty">No matching songs found with current attributes. Try a different constraint or song.</div>';
+      }
+      document.getElementById('query-time').innerHTML = '<div class="query-time">' + (data.results||[]).length + ' results in ' + (data.query_ms || elapsed) + 'ms</div>';
+    })
+    .catch(() => {
+      // Fallback: do simple attribute matching client-side (no embedding search)
+      const results = clientSideSearch(vid, constraint);
+      const elapsed = Math.round(performance.now() - t0);
+      if (results.length) {
+        document.getElementById('results').innerHTML = results.map((r, i) => renderResult(r, i, ref)).join('');
+      } else {
+        document.getElementById('results').innerHTML = '<div class="empty">No matching songs found.</div>';
+      }
+      document.getElementById('query-time').innerHTML = '<div class="query-time">' + results.length + ' results in ' + elapsed + 'ms (client-side)</div>';
+    });
+}
+
+function clientSideSearch(queryVid, constraint) {
+  const ref = songAttrs[queryVid];
+  if (!ref) return [];
+  const refChords = ref.chords || [];
+  const refSet = new Set(refChords);
+  const refBigrams = makeBigrams(refChords);
+
+  let candidates = [];
+  for (const [vid, a] of Object.entries(songAttrs)) {
+    if (vid === queryVid) continue;
+    if (constraint && !matchesConstraint(a, ref, constraint)) continue;
+    const aChords = a.chords || [];
+    const aSet = new Set(aChords);
+    const shared = [...refSet].filter(c => aSet.has(c));
+
+    // Score: 60% chord histogram cosine + 40% bigram overlap (matching the madmom approach)
+    const histSim = chordHistogramSim(refChords, aChords);
+    const bgSim = bigramSim(refBigrams, makeBigrams(aChords));
+    const score = 0.6 * histSim + 0.4 * bgSim;
+
+    // Check if verified cover (same clique)
+    const isCover = ref.clique && a.clique && ref.clique === a.clique;
+
+    candidates.push({ vid, ...a, shared_chords: shared.slice(0, 6), similarity: score, is_cover: isCover });
+  }
+  candidates.sort((a, b) => b.similarity - a.similarity);
+  return candidates.slice(0, 10).map(c => ({
+    ...c,
+    changes: computeChanges(ref, c),
+    similarity: Math.round(c.similarity * 1000) / 1000,
+  }));
+}
+
+function makeBigrams(chords) {
+  const bg = {};
+  for (let i = 0; i < chords.length - 1; i++) {
+    const key = chords[i] + '|' + chords[i+1];
+    bg[key] = (bg[key] || 0) + 1;
+  }
+  return bg;
+}
+
+function chordHistogramSim(chordsA, chordsB) {
+  // Count chord occurrences, compute cosine similarity
+  const histA = {}, histB = {};
+  chordsA.forEach(c => histA[c] = (histA[c]||0) + 1);
+  chordsB.forEach(c => histB[c] = (histB[c]||0) + 1);
+  const allKeys = new Set([...Object.keys(histA), ...Object.keys(histB)]);
+  let dot = 0, normA = 0, normB = 0;
+  allKeys.forEach(k => {
+    const a = histA[k] || 0, b = histB[k] || 0;
+    dot += a * b; normA += a * a; normB += b * b;
+  });
+  return (normA && normB) ? dot / (Math.sqrt(normA) * Math.sqrt(normB)) : 0;
+}
+
+function bigramSim(bgA, bgB) {
+  let overlap = 0, totalA = 0, totalB = 0;
+  for (const k in bgA) { totalA += bgA[k]; if (bgB[k]) overlap += Math.min(bgA[k], bgB[k]); }
+  for (const k in bgB) totalB += bgB[k];
+  return Math.max(totalA, totalB) ? overlap / Math.max(totalA, totalB) : 0;
+}
+
+function matchesConstraint(a, ref, c) {
+  c = c.toLowerCase();
+  if (c.includes('different key')) return a.key !== ref.key;
+  if (c.includes('different genre') || c.includes('different style')) return a.genre !== ref.genre;
+  if (c.includes('female')) return a.vocals === 'female';
+  if (c.includes('male') && !c.includes('female')) return a.vocals === 'male';
+  if (c.includes('acoustic')) return (a.instruments||[]).includes('acoustic guitar');
+  if (c.includes('piano')) return (a.instruments||[]).includes('piano') || (a.instruments||[]).includes('keyboard');
+  if (c.includes('jazz')) return a.genre === 'jazz';
+  if (c.includes('rock')) return a.genre === 'rock';
+  if (c.includes('classical')) return a.genre === 'classical';
+  if (c.includes('slow')) return a.tempo === 'slow';
+  if (c.includes('sad')) return (a.mood||[]).some(m => ['sad','melancholic','emotional'].includes(m));
+  if (c.includes('instrumental')) return a.vocals === 'instrumental';
+  return true;
+}
+
+function computeChanges(ref, cand) {
+  const changes = [];
+  if (ref.key && cand.key && ref.key !== cand.key)
+    changes.push({attr:'key', from: ref.key+' '+(ref.scale||''), to: cand.key+' '+(cand.scale||'')});
+  if (ref.vocals && cand.vocals && ref.vocals !== cand.vocals)
+    changes.push({attr:'vocals', from: ref.vocals, to: cand.vocals});
+  if (ref.genre && cand.genre && ref.genre !== cand.genre)
+    changes.push({attr:'genre', from: ref.genre, to: cand.genre});
+  if (ref.tempo && cand.tempo && ref.tempo !== cand.tempo)
+    changes.push({attr:'tempo', from: ref.tempo, to: cand.tempo});
+  const ri = new Set(ref.instruments||[]), ci = new Set(cand.instruments||[]);
+  const added = [...ci].filter(x => !ri.has(x));
+  const removed = [...ri].filter(x => !ci.has(x));
+  if (added.length) changes.push({attr:'instruments', from:'', to:'+ '+added.join(', ')});
+  if (removed.length) changes.push({attr:'instruments', from:'- '+removed.join(', '), to:''});
+  return changes;
+}
+
+function renderRef(ref, constraint) {
+  let h = '<div class="ref-card"><h3>' + (ref.artist||'?') + ' - ' + (ref.title||'?') + '</h3>';
+  if (constraint) h += '<div style="color:#e65100;font-size:13px;margin-bottom:6px;">Looking for: ' + constraint + '</div>';
+  h += '<div class="tags">';
+  if (ref.key) h += tag('key', ref.key + ' ' + (ref.scale||''));
+  if (ref.genre) h += tag('genre', ref.genre);
+  if (ref.vocals) h += tag('vocals', ref.vocals + ' vocals');
+  if (ref.tempo) h += tag('tempo', ref.tempo);
+  (ref.mood||[]).forEach(m => h += tag('mood', m));
+  (ref.instruments||[]).forEach(i => h += tag('instrument', i));
+  h += '</div>';
+  if (ref.chords && ref.chords.length) h += '<div style="font-size:12px;color:#999;margin-top:6px;">Chords: ' + ref.chords.slice(0,10).join(' - ') + '</div>';
+  h += '</div>';
+  return h;
+}
+
+function renderResult(r, i, ref) {
+  let h = '<div class="result"><div class="result-header"><div>';
+  h += '<span class="result-title">' + (i+1) + '. ' + (r.artist||'?') + ' - ' + (r.title||'?') + '</span>';
+  if (r.is_cover) h += '<span class="cover-badge">COVER</span>';
+  h += '</div><span class="result-sim">' + r.similarity + '</span></div>';
+  h += '<div class="tags">';
+  if (r.key) h += tag('key', r.key + ' ' + (r.scale||''));
+  if (r.genre) h += tag('genre', r.genre);
+  if (r.vocals) h += tag('vocals', r.vocals + ' vocals');
+  if (r.tempo) h += tag('tempo', r.tempo);
+  (r.mood||[]).forEach(m => h += tag('mood', m));
+  (r.instruments||[]).slice(0,5).forEach(inst => h += tag('instrument', inst));
+  h += '</div>';
+  if (r.changes && r.changes.length) {
+    h += '<div class="changes">';
+    r.changes.forEach(c => {
+      h += '<span class="change">';
+      if (c.from && c.to) h += '<span class="from">' + c.from + '</span><span class="arrow">&rarr;</span><span class="to">' + c.to + '</span>';
+      else if (c.to) h += '<span class="added">' + c.to + '</span>';
+      else if (c.from) h += '<span class="removed">' + c.from + '</span>';
+      h += '</span>';
+    });
+    h += '</div>';
+  }
+  if (r.shared_chords && r.shared_chords.length) h += '<div class="shared-chords">Shared chords: ' + r.shared_chords.join(', ') + '</div>';
+  h += '</div>';
+  return h;
+}
+
+function tag(cls, text) { return '<span class="tag ' + cls + '">' + text + '</span>'; }
+</script>
+</body>
+</html>
