@@ -210,6 +210,7 @@ document.getElementById('chips').addEventListener('click', e => {
   document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
   if (wasActive) { input.value = ''; }
   else { e.target.classList.add('active'); input.value = e.target.dataset.c; }
+  if (document.getElementById('song-select').value) doQuery();
 });
 document.getElementById('constraint').addEventListener('keydown', e => { if (e.key === 'Enter') doQuery(); });
 
