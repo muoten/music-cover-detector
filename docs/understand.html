@@ -117,7 +117,7 @@ let songAttrs = {};
 let songList = [];
 let selectedIdx = -1;
 // Load precomputed song attributes
-fetch('song_attributes.json').then(r => r.json()).then(data => {
+fetch('song_attributes.json?v=' + Date.now()).then(r => r.json()).then(data => {
   songAttrs = data;
   songList = Object.entries(data).map(([vid, a]) => ({
     vid,
