@@ -47,7 +47,7 @@ main { max-width: 800px; margin: 20px auto; padding: 0 15px; }
 
 .result { border: 1px solid #e0e0e0; border-radius: 8px; padding: 14px; margin-bottom: 10px; transition: box-shadow 0.15s; }
 .result:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
-.result-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px; }
+.result-header { display: flex; gap: 10px; align-items: center; margin-bottom: 6px; }
 .result-title { font-weight: 500; font-size: 0.95em; }
 .result-sim { background: #f5f5f5; border-radius: 4px; padding: 2px 8px; font-size: 12px; color: #999; }
 .cover-badge { background: #e8f5e9; color: #2e7d32; border-radius: 4px; padding: 2px 8px; font-size: 11px; margin-left: 8px; font-weight: 500; }
@@ -351,7 +351,10 @@ function computeChanges(ref, cand) {
 }
 
 function renderRef(ref, constraint) {
-  let h = '<div class="ref-card"><h3>' + (ref.artist||'?') + ' - ' + (ref.title||'?') + '</h3>';
+  const refVid = document.getElementById('song-select').value;
+  let h = '<div class="ref-card"><div style="display:flex;gap:10px;align-items:center;margin-bottom:8px;">';
+  h += '<a href="https://www.youtube.com/watch?v=' + refVid + '" target="_blank"><img src="https://img.youtube.com/vi/' + refVid + '/default.jpg" style="width:60px;height:45px;object-fit:cover;border-radius:4px;"></a>';
+  h += '<h3 style="margin:0;"><a href="https://www.youtube.com/watch?v=' + refVid + '" target="_blank" style="color:#1976D2;text-decoration:none;">' + (ref.artist||'?') + ' - ' + (ref.title||'?') + '</a></h3></div>';
   if (constraint) h += '<div style="color:#e65100;font-size:13px;margin-bottom:6px;">Looking for: ' + constraint + '</div>';
   h += '<div class="tags">';
   if (ref.key) h += tag('key', ref.key + ' ' + (ref.scale||''));
@@ -367,10 +370,13 @@ function renderRef(ref, constraint) {
 }
 
 function renderResult(r, i, ref) {
-  let h = '<div class="result"><div class="result-header"><div>';
-  h += '<span class="result-title">' + (i+1) + '. ' + (r.artist||'?') + ' - ' + (r.title||'?') + '</span>';
+  let h = '<div class="result"><div class="result-header">';
+  h += '<a href="https://www.youtube.com/watch?v=' + r.vid + '" target="_blank" style="flex-shrink:0;"><img src="https://img.youtube.com/vi/' + r.vid + '/default.jpg" style="width:60px;height:45px;object-fit:cover;border-radius:4px;"></a>';
+  h += '<div style="flex:1;min-width:0;"><div>';
+  h += '<span class="result-title"><a href="https://www.youtube.com/watch?v=' + r.vid + '" target="_blank" style="color:#1976D2;text-decoration:none;">' + (r.artist||'?') + ' - ' + (r.title||'?') + '</a></span>';
   if (r.is_cover) h += '<span class="cover-badge">COVER</span>';
-  h += '</div><span class="result-sim">' + r.similarity + '</span></div>';
+  h += '</div></div>';
+  h += '<span class="result-sim">' + r.similarity + '</span></div>';
   h += '<div class="tags">';
   if (r.key) h += tag('key', r.key + ' ' + (r.scale||''));
   if (r.genre) h += tag('genre', r.genre);
