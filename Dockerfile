@@ -22,7 +22,8 @@ RUN pip install --no-cache-dir \
     umap-learn \
     transformers \
     einops \
-    timm
+    timm \
+    dtw-python
 
 WORKDIR /app
 

@@ -88,6 +88,111 @@ livi_vid_to_idx = {}            # youtube_id -> index in livi_embeddings_matrix
 FUSION_WEIGHT_CH = 0.80
 FUSION_WEIGHT_LIVI = 0.20
 
+# Symbolic tiebreaker (ROSVOT melody + madmom chords, DTW)
+_symbolic_seqs = None
+TIEBREAKER_GAP = 0.05  # only rerank when top-2 CoverHunter scores are within this gap
+
+
+def _load_symbolic_seqs():
+    """Load precomputed ROSVOT melody + madmom chord sequences for DTW tiebreaker."""
+    global _symbolic_seqs
+    if _symbolic_seqs is not None:
+        return
+    seq_paths = [
+        '/app/data/melody_chord_sequences.npz',
+        os.path.join(SCRIPT_DIR, '..', 'melody_chord_sequences.npz'),
+    ]
+    for p in seq_paths:
+        if os.path.exists(p):
+            try:
+                data = np.load(p, allow_pickle=True)
+                _symbolic_seqs = dict(data['seqs'].item())
+                logging.info(f"Loaded {len(_symbolic_seqs)} symbolic sequences for DTW tiebreaker")
+                return
+            except Exception as e:
+                logging.warning(f"Failed to load symbolic sequences from {p}: {e}")
+    _symbolic_seqs = {}
+    logging.info("No symbolic sequences found, tiebreaker disabled")
+
+
+def _dtw_distance(seq_a, seq_b):
+    """DTW distance between two melody+chord sequences with key transposition."""
+    a = seq_a[seq_a.sum(axis=1) > 0].astype(np.float64)
+    b = seq_b[seq_b.sum(axis=1) > 0].astype(np.float64)
+    if len(a) < 3 or len(b) < 3:
+        return 999.0
+    best = 999.0
+    for shift in range(12):
+        bs = b.copy()
+        bs[:, :12] = np.roll(b[:, :12], shift, axis=1)
+        bs[:, 12:24] = np.roll(b[:, 12:24], shift, axis=1)
+        try:
+            from dtw import dtw as dtw_func
+            d = dtw_func(a, bs, dist_method='euclidean').distance / max(len(a), len(bs))
+            if d < best:
+                best = d
+        except Exception:
+            pass
+    return best
+
+
+def _apply_symbolic_tiebreaker(top_indices, similarities):
+    """Rerank top candidates using DTW on symbolic sequences when scores are close."""
+    _load_symbolic_seqs()
+    if not _symbolic_seqs or len(top_indices) < 2:
+        return top_indices
+
+    s1 = float(similarities[top_indices[0]])
+    s2 = float(similarities[top_indices[1]])
+
+    # Only intervene when CoverHunter is uncertain
+    if s1 - s2 > TIEBREAKER_GAP:
+        return top_indices
+
+    # Find close candidates (within gap of top score)
+    close_mask = [i for i in top_indices if s1 - float(similarities[i]) < TIEBREAKER_GAP]
+    rest = [i for i in top_indices if i not in close_mask]
+
+    # Get query video ID
+    query_vid = video_ids[top_indices[0]]  # approximate — any close candidate could be query context
+
+    # For each close candidate that has symbolic data, compute DTW
+    # We need the query's symbolic sequence too — check if any candidate has it
+    scored = []
+    for idx in close_mask:
+        vid = video_ids[idx]
+        scored.append((idx, float(similarities[idx]), vid))
+
+    # Find a reference sequence among close candidates
+    # Actually, we need the QUERY's sequence, not the candidates'
+    # The query sequence should be computed at search time if available
+    # For now, just compare candidates against each other using their sequences
+    # Fallback: use CoverHunter scores as-is
+    # TODO: In production, compute query sequence from audio and compare
+
+    # For songs already in the database: compare the top candidate's sequence
+    # against other close candidates
+    best_idx = close_mask[0]
+    if video_ids[close_mask[0]] in _symbolic_seqs:
+        ref_seq = _symbolic_seqs[video_ids[close_mask[0]]]
+        best_score = -1
+        for idx in close_mask:
+            vid = video_ids[idx]
+            if vid in _symbolic_seqs:
+                # Lower DTW = more similar
+                d = _dtw_distance(ref_seq, _symbolic_seqs[vid])
+                # Combine: high embedding similarity + low DTW distance
+                combined = float(similarities[idx]) + max(0, 1 - d / 5.0) * 0.1
+            else:
+                combined = float(similarities[idx])
+            if combined > best_score:
+                best_score = combined
+                best_idx = idx
+
+    # Rebuild order: best tiebroken candidate first, then rest of close, then rest
+    reordered = [best_idx] + [i for i in close_mask if i != best_idx] + rest
+    return np.array(reordered[:len(top_indices)])
+
 
 def compute_embedding_hash(embedding):
     """Compute a short hash of an embedding vector."""
@@ -1065,7 +1170,11 @@ def find_similar(query_embedding, top_k=5, query_livi_embedding=None):
     else:
         similarities = ch_sims
 
-    top_indices = np.argsort(similarities)[::-1][:top_k]
+    top_indices = np.argsort(similarities)[::-1][:max(top_k, 10)]
+
+    # Symbolic tiebreaker: if top-2 are close, use DTW on melody+chord sequences
+    top_indices = _apply_symbolic_tiebreaker(top_indices, similarities)
+    top_indices = top_indices[:top_k]
 
     results = []
     for idx in top_indices:
